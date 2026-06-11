@@ -13,7 +13,7 @@ jobs:
       matrix:
         include:
           - variant: gpu
-            args: ""
+            args: "--features cuda"
           - variant: cpu
             args: "--no-default-features --features vad --config src-tauri/tauri.cpu.conf.json"
     steps:
@@ -75,7 +75,7 @@ jobs:
           args: ${{ matrix.args }}
 
   macos:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 

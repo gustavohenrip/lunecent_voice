@@ -8,6 +8,8 @@ mod history;
 mod hotkey;
 #[cfg(windows)]
 mod inputhook;
+#[cfg(target_os = "macos")]
+mod inputhook_mac;
 mod inject;
 mod models;
 mod pipeline;
@@ -133,6 +135,9 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     inputhook::start(handle.clone());
 
+    #[cfg(target_os = "macos")]
+    inputhook_mac::start(handle.clone());
+
     tray::build(&handle)?;
     position_widget(&handle);
 
@@ -200,7 +205,11 @@ fn position_widget(app: &tauri::AppHandle) {
                 height: (40.0 * scale) as u32,
             });
             let margin = (24.0 * scale) as i32;
-            let taskbar = (64.0 * scale) as i32;
+            #[cfg(target_os = "macos")]
+            let reserve = 88.0;
+            #[cfg(not(target_os = "macos"))]
+            let reserve = 64.0;
+            let taskbar = (reserve * scale) as i32;
             let x = monitor_pos.x + monitor_size.width as i32 - widget_size.width as i32 - margin;
             let y =
                 monitor_pos.y + monitor_size.height as i32 - widget_size.height as i32 - taskbar;

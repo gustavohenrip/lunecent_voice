@@ -37,7 +37,7 @@ try {
     }
 
     Write-Host "Iniciando Tauri em modo dev (compila e abre o app)..." -ForegroundColor Cyan
-    npx tauri dev
+    npx tauri dev --features cuda
     exit $LASTEXITCODE
 } catch {
     Write-Host ""

@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 enum AudioCmd {
     Rebuild(Option<String>),
+    SetActive(bool),
 }
 
 pub struct AudioEngine {
@@ -66,6 +67,7 @@ impl AudioEngine {
         self.buffer.lock().clear();
         self.level.store(0f32.to_bits(), Ordering::Release);
         self.recording.store(true, Ordering::Release);
+        let _ = self.cmd_tx.send(AudioCmd::SetActive(true));
     }
 
     pub fn level(&self) -> f32 {
@@ -75,6 +77,7 @@ impl AudioEngine {
     pub fn stop(&self) -> CapturedAudio {
         self.recording.store(false, Ordering::Release);
         self.level.store(0f32.to_bits(), Ordering::Release);
+        let _ = self.cmd_tx.send(AudioCmd::SetActive(false));
         let samples = std::mem::take(&mut *self.buffer.lock());
         let sample_rate = self.sample_rate.load(Ordering::Acquire).max(1);
         let channels = self.channels.load(Ordering::Acquire).max(1);
@@ -136,9 +139,11 @@ fn audio_thread(
     cmd_rx: Receiver<AudioCmd>,
 ) {
     let mut current = initial_device;
+    let mut active = false;
     let mut stream =
         match build_stream(&current, &recording, &buffer, &sample_rate, &channels, &level) {
             Ok(stream) => {
+                let _ = stream.pause();
                 available.store(true, Ordering::Release);
                 Some(stream)
             }
@@ -156,12 +161,26 @@ fn audio_thread(
                 current = device;
                 match build_stream(&current, &recording, &buffer, &sample_rate, &channels, &level) {
                     Ok(new_stream) => {
+                        let _ = if active {
+                            new_stream.play()
+                        } else {
+                            new_stream.pause()
+                        };
                         available.store(true, Ordering::Release);
                         stream = Some(new_stream);
                     }
                     Err(err) => {
                         tracing::error!("audio stream rebuild failed: {err}");
                         available.store(false, Ordering::Release);
+                    }
+                }
+            }
+            Ok(AudioCmd::SetActive(on)) => {
+                active = on;
+                if let Some(s) = stream.as_ref() {
+                    let res = if on { s.play() } else { s.pause() };
+                    if let Err(err) = res {
+                        tracing::warn!("audio stream toggle failed: {err}");
                     }
                 }
             }
@@ -270,10 +289,6 @@ fn build_stream(
         }
     }
     .map_err(|e| AppError::Audio(format!("build input stream failed: {e}")))?;
-
-    stream
-        .play()
-        .map_err(|e| AppError::Audio(format!("stream play failed: {e}")))?;
 
     Ok(stream)
 }

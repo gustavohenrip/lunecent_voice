@@ -10,15 +10,16 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "withGlobalTauri": true,
     "windows": [
       {
         "label": "widget",
         "url": "index.html",
         "title": "Lunecent Voice",
-        "width": 268,
+        "width": 320,
         "height": 40,
-        "minWidth": 268,
+        "minWidth": 320,
         "minHeight": 40,
         "resizable": false,
         "decorations": false,
@@ -41,9 +42,6 @@
         "resizable": true,
         "decorations": false,
         "transparent": true,
-        "windowEffects": {
-          "effects": ["acrylic"]
-        },
         "center": true,
         "visible": false
       },
@@ -58,9 +56,6 @@
         "resizable": true,
         "decorations": false,
         "transparent": true,
-        "windowEffects": {
-          "effects": ["acrylic"]
-        },
         "center": true,
         "visible": false
       }

@@ -44,7 +44,7 @@ try {
         Write-Host "Fetching native deps (llama-server CUDA + CUDA runtime DLLs)..." -ForegroundColor Cyan
         powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "scripts\fetch-deps.ps1")
         Write-Host "Compiling release (this takes a while)..." -ForegroundColor Cyan
-        npx tauri build
+        npx tauri build --features cuda
         if ($LASTEXITCODE -ne 0) { throw "tauri build (gpu) failed ($LASTEXITCODE)." }
     } else {
         Write-Host "Compiling CPU-only release (this takes a while)..." -ForegroundColor Cyan

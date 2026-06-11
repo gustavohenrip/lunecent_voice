@@ -1,7 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { fly } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
   import { api, on, getCurrentWindow, type UnlistenFn } from "../lib/ipc";
   import type { Settings, ModelStatus, DownloadProgress } from "../lib/types";
+  import Icon from "../lib/Icon.svelte";
+  import { getTheme, setTheme, type ThemeMode } from "../lib/theme";
 
   type Tab = "general" | "audio" | "models" | "llm" | "dictionary";
 
@@ -18,6 +22,27 @@
   let dictKey = $state("");
   let dictVal = $state("");
   let fillerText = $state("");
+  let themeMode = $state<ThemeMode>(getTheme());
+
+  const reduce =
+    typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const isMac =
+    typeof navigator !== "undefined" && /Mac/i.test(navigator.platform || navigator.userAgent);
+  const capturePrompt = isMac
+    ? "Pressione as teclas…"
+    : "Pressione teclas ou botão do mouse…";
+
+  const themes: { id: ThemeMode; label: string; icon: string }[] = [
+    { id: "light", label: "Claro", icon: "sun" },
+    { id: "system", label: "Sistema", icon: "monitor" },
+    { id: "dark", label: "Escuro", icon: "moon-stars" },
+  ];
+
+  function pickTheme(mode: ThemeMode) {
+    themeMode = mode;
+    setTheme(mode);
+  }
 
   onMount(() => {
     let unlisten: UnlistenFn[] = [];
@@ -86,7 +111,7 @@
 
   function onMouse(e: MouseEvent) {
     if (!capturing || !settings) return;
-    const token = mouseToken(e.button);
+    const token = isMac ? null : mouseToken(e.button);
     if (!token) {
       if (e.button === 0) {
         const target = e.target as HTMLElement | null;
@@ -179,7 +204,7 @@
           case "MouseForward":
             return "Mouse 5 (lateral)";
           case "Super":
-            return "Win";
+            return isMac ? "Cmd" : "Win";
           default:
             return part;
         }
@@ -227,12 +252,14 @@
   }
 
   const tabs: { id: Tab; label: string; icon: string }[] = [
-    { id: "general", label: "Geral", icon: "M12 3l8 5v8l-8 5-8-5V8z" },
-    { id: "audio", label: "Áudio", icon: "M12 3v18M7 8v8M17 8v8M3 11v2M21 11v2" },
-    { id: "models", label: "Modelos", icon: "M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" },
-    { id: "llm", label: "LLM", icon: "M12 2a7 7 0 0 1 7 7c0 2.4-1.2 4.1-2.6 5.4-.8.8-1.4 1.9-1.4 3.1V19a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-1.5c0-1.2-.6-2.3-1.4-3.1C5.2 13.1 4 11.4 4 9a7 7 0 0 1 8-7z" },
-    { id: "dictionary", label: "Dicionário", icon: "M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5zM4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5" },
+    { id: "general", label: "Geral", icon: "sliders-horizontal" },
+    { id: "audio", label: "Áudio", icon: "waveform" },
+    { id: "models", label: "Modelos", icon: "cube" },
+    { id: "llm", label: "Correção IA", icon: "sparkle" },
+    { id: "dictionary", label: "Dicionário", icon: "book-open-text" },
   ];
+
+  const active = $derived(tabs.find((t) => t.id === tab) ?? tabs[0]);
 </script>
 
 <svelte:window onkeydown={onKey} onmousedown={onMouse} />
@@ -244,20 +271,18 @@
       <h1>Lunecent Voice <span>· Ajustes</span></h1>
     </div>
     <div class="head-actions">
-      {#if saved}<span class="saved-chip">Salvo</span>{/if}
+      {#if saved}
+        <span class="saved-chip"><Icon name="check-circle" size={15} /> Salvo</span>
+      {/if}
       <button class="btn primary" onclick={save} disabled={saving}>
         {saving ? "Salvando…" : "Salvar"}
       </button>
       <div class="winbtns">
         <button class="winbtn" title="Minimizar" aria-label="Minimizar" onclick={minimize}>
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M5 12h14" stroke-linecap="round" />
-          </svg>
+          <Icon name="minus" size={15} />
         </button>
         <button class="winbtn close" title="Fechar" aria-label="Fechar" onclick={() => api.hideWindow("settings")}>
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M6 6l12 12M18 6L6 18" stroke-linecap="round" />
-          </svg>
+          <Icon name="x" size={15} />
         </button>
       </div>
     </div>
@@ -267,264 +292,293 @@
     <div class="body">
       <nav>
         {#each tabs as t}
-          <button class="tab" class:active={tab === t.id} onclick={() => (tab = t.id)}>
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-              <path d={t.icon} />
-            </svg>
-            {t.label}
+          <button class="nav-item" class:active={tab === t.id} onclick={() => (tab = t.id)}>
+            <Icon name={t.icon} size={18} />
+            <span>{t.label}</span>
           </button>
         {/each}
       </nav>
 
       <section class="panel">
-        {#if tab === "general"}
-          <div class="card group">
-            <h2>Atalhos</h2>
-            <div class="field">
-              <label for="ptt">Segurar para falar</label>
-              <div class="hotkey">
-                <input id="ptt" readonly value={capturing === "hotkey_ptt" ? "Pressione teclas ou botão do mouse…" : prettyHotkey(settings.hotkey_ptt)} class:capturing={capturing === "hotkey_ptt"} />
-                <button class="btn" onclick={() => (capturing = capturing === "hotkey_ptt" ? null : "hotkey_ptt")}>
-                  {capturing === "hotkey_ptt" ? "Cancelar" : "Definir"}
-                </button>
-              </div>
-            </div>
-            <div class="field">
-              <label for="tog">Alternar gravação (liga/desliga)</label>
-              <div class="hotkey">
-                <input id="tog" readonly value={capturing === "hotkey_toggle" ? "Pressione teclas ou botão do mouse…" : prettyHotkey(settings.hotkey_toggle)} class:capturing={capturing === "hotkey_toggle"} />
-                <button class="btn" onclick={() => (capturing = capturing === "hotkey_toggle" ? null : "hotkey_toggle")}>
-                  {capturing === "hotkey_toggle" ? "Cancelar" : "Definir"}
-                </button>
-              </div>
-            </div>
-            <p class="hint">
-              Aceita combinações com Ctrl, Shift, Alt e Win, teclas comuns e os botões do mouse:
-              meio (Mouse 3) e laterais (Mouse 4 e 5). Pressione Esc para cancelar a captura.
-            </p>
-            <div class="field">
-              <label for="mode">Modo de gravação</label>
-              <select id="mode" bind:value={settings.record_mode}>
-                <option value="push_to_talk">Segurar para falar</option>
-                <option value="toggle">Alternar (pressionar para iniciar e parar)</option>
-              </select>
-            </div>
-          </div>
+        {#key tab}
+          <div class="panel-inner" in:fly={{ y: 6, duration: reduce ? 0 : 260, easing: cubicOut }}>
+            <h2 class="panel-title display">{active.label}</h2>
 
-          <div class="card group">
-            <h2>Idioma e modelo</h2>
-            <div class="field">
-              <label for="lang">Idioma da fala</label>
-              <select id="lang" bind:value={settings.language}>
-                <option value="auto">Detectar automaticamente</option>
-                <option value="pt">Português (pt-BR)</option>
-                <option value="en">Inglês (en)</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="wm">Modelo Whisper</label>
-              <select id="wm" bind:value={settings.whisper_model}>
-                <option value="large-v3-turbo">large-v3-turbo (recomendado)</option>
-                <option value="large-v3">large-v3 (máxima precisão)</option>
-                <option value="medium">medium (mais leve)</option>
-              </select>
-            </div>
-            <label class="switch">
-              <input type="checkbox" bind:checked={settings.prefer_gpu} />
-              <span class="track"><span class="thumb"></span></span>
-              <span>Usar GPU (CUDA) quando disponível</span>
-            </label>
-          </div>
-
-          <div class="card group">
-            <h2>Comportamento</h2>
-            <label class="switch">
-              <input type="checkbox" bind:checked={settings.restore_clipboard} />
-              <span class="track"><span class="thumb"></span></span>
-              <span>Restaurar a área de transferência após colar</span>
-            </label>
-            <label class="switch">
-              <input type="checkbox" bind:checked={settings.autostart} />
-              <span class="track"><span class="thumb"></span></span>
-              <span>Iniciar junto com o Windows</span>
-            </label>
-            <div class="field">
-              <label for="delay">Atraso ao colar: {settings.paste_delay_ms} ms</label>
-              <input id="delay" type="range" min="40" max="400" step="10" bind:value={settings.paste_delay_ms} />
-            </div>
-          </div>
-        {/if}
-
-        {#if tab === "audio"}
-          <div class="card group">
-            <h2>Entrada de áudio</h2>
-            <div class="field">
-              <label for="dev">Microfone</label>
-              <select id="dev" bind:value={settings.audio_device}>
-                <option value={null}>Padrão do sistema</option>
-                {#each devices as d}
-                  <option value={d}>{d}</option>
-                {/each}
-              </select>
-            </div>
-          </div>
-
-          <div class="card group">
-            <h2>Detecção de fala (VAD)</h2>
-            <label class="switch">
-              <input type="checkbox" bind:checked={settings.vad_enabled} />
-              <span class="track"><span class="thumb"></span></span>
-              <span>Cortar silêncio automaticamente (Silero VAD)</span>
-            </label>
-            <div class="field">
-              <label for="thr">Sensibilidade: {settings.vad_threshold.toFixed(2)}</label>
-              <input id="thr" type="range" min="0.1" max="0.9" step="0.05" bind:value={settings.vad_threshold} />
-            </div>
-            <div class="field">
-              <label for="pad">Folga antes e depois da fala: {settings.speech_pad_ms} ms</label>
-              <input id="pad" type="range" min="0" max="400" step="10" bind:value={settings.speech_pad_ms} />
-            </div>
-            <div class="field">
-              <label for="sil">Silêncio mínimo entre trechos: {settings.min_silence_ms} ms</label>
-              <input id="sil" type="range" min="50" max="1000" step="50" bind:value={settings.min_silence_ms} />
-            </div>
-          </div>
-
-          <div class="card group">
-            <h2>Limpeza do texto</h2>
-            <label class="switch">
-              <input type="checkbox" bind:checked={settings.filler_removal} />
-              <span class="track"><span class="thumb"></span></span>
-              <span>Remover muletas de fala (né, tipo, hum…)</span>
-            </label>
-            <div class="field">
-              <label for="fill">Palavras a remover (uma por linha)</label>
-              <textarea id="fill" rows="5" bind:value={fillerText}></textarea>
-            </div>
-          </div>
-        {/if}
-
-        {#if tab === "models"}
-          <p class="hint">
-            Os modelos são baixados do Hugging Face e ficam armazenados no seu computador.
-            Nada é enviado para a internet além do próprio download.
-          </p>
-          {#each models as m}
-            <div class="card model">
-              <div class="model-info">
-                <div class="model-name">{m.info.label}</div>
-                <div class="model-meta">
-                  {m.info.filename} · {fmtBytes(m.info.size_bytes)}
-                  {#if m.present}<span class="ok">instalado</span>{/if}
+            {#if tab === "general"}
+              <div class="group">
+                <span class="group-head">Atalhos</span>
+                <div class="field">
+                  <label for="ptt">Segurar para falar</label>
+                  <div class="hotkey">
+                    <input id="ptt" readonly value={capturing === "hotkey_ptt" ? capturePrompt : prettyHotkey(settings.hotkey_ptt)} class:capturing={capturing === "hotkey_ptt"} />
+                    <button class="btn" onclick={() => (capturing = capturing === "hotkey_ptt" ? null : "hotkey_ptt")}>
+                      {capturing === "hotkey_ptt" ? "Cancelar" : "Definir"}
+                    </button>
+                  </div>
                 </div>
-                {#if downloads[m.info.id] && !downloads[m.info.id].done && !downloads[m.info.id].error}
-                  <div class="bar"><span style={`width:${downloads[m.info.id].pct}%`}></span></div>
-                  <div class="pct">{downloads[m.info.id].pct.toFixed(1)}%</div>
+                <div class="field">
+                  <label for="tog">Alternar gravação (liga/desliga)</label>
+                  <div class="hotkey">
+                    <input id="tog" readonly value={capturing === "hotkey_toggle" ? capturePrompt : prettyHotkey(settings.hotkey_toggle)} class:capturing={capturing === "hotkey_toggle"} />
+                    <button class="btn" onclick={() => (capturing = capturing === "hotkey_toggle" ? null : "hotkey_toggle")}>
+                      {capturing === "hotkey_toggle" ? "Cancelar" : "Definir"}
+                    </button>
+                  </div>
+                </div>
+                <p class="hint">
+                  {#if isMac}
+                    Aceita combinações com Ctrl, Shift, Alt (Option) e Cmd e teclas comuns.
+                    Pressione Esc para cancelar a captura. No macOS, conceda a permissão de
+                    Acessibilidade ao app para o atalho global funcionar.
+                  {:else}
+                    Aceita combinações com Ctrl, Shift, Alt e Win, teclas comuns e os botões do mouse:
+                    meio (Mouse 3) e laterais (Mouse 4 e 5). Pressione Esc para cancelar a captura.
+                  {/if}
+                </p>
+                <div class="field">
+                  <label for="mode">Modo de gravação</label>
+                  <select id="mode" bind:value={settings.record_mode}>
+                    <option value="push_to_talk">Segurar para falar</option>
+                    <option value="toggle">Alternar (pressionar para iniciar e parar)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="group">
+                <span class="group-head">Idioma e modelo</span>
+                <div class="field">
+                  <label for="lang">Idioma da fala</label>
+                  <select id="lang" bind:value={settings.language}>
+                    <option value="auto">Detectar automaticamente</option>
+                    <option value="pt">Português (pt-BR)</option>
+                    <option value="en">Inglês (en)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="wm">Modelo Whisper</label>
+                  <select id="wm" bind:value={settings.whisper_model}>
+                    <option value="large-v3-turbo">large-v3-turbo (recomendado)</option>
+                    <option value="large-v3">large-v3 (máxima precisão)</option>
+                    <option value="medium">medium (mais leve)</option>
+                  </select>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" bind:checked={settings.prefer_gpu} />
+                  <span class="track"><span class="thumb"></span></span>
+                  <span>{isMac ? "Usar GPU (Metal) quando disponível" : "Usar GPU (CUDA) quando disponível"}</span>
+                </label>
+              </div>
+
+              <div class="group">
+                <span class="group-head">Comportamento</span>
+                <label class="switch">
+                  <input type="checkbox" bind:checked={settings.restore_clipboard} />
+                  <span class="track"><span class="thumb"></span></span>
+                  <span>Restaurar a área de transferência após colar</span>
+                </label>
+                <label class="switch">
+                  <input type="checkbox" bind:checked={settings.autostart} />
+                  <span class="track"><span class="thumb"></span></span>
+                  <span>{isMac ? "Iniciar junto com o macOS" : "Iniciar junto com o Windows"}</span>
+                </label>
+                <div class="field">
+                  <label for="delay">Atraso ao colar <em class="tnum">{settings.paste_delay_ms} ms</em></label>
+                  <input id="delay" type="range" min="40" max="400" step="10" bind:value={settings.paste_delay_ms} />
+                </div>
+              </div>
+
+              <div class="group">
+                <span class="group-head">Aparência</span>
+                <div class="field">
+                  <span class="cap">Tema</span>
+                  <div class="theme-seg" role="group" aria-label="Tema">
+                    {#each themes as th}
+                      <button class="seg" class:active={themeMode === th.id} onclick={() => pickTheme(th.id)}>
+                        <Icon name={th.icon} size={15} />
+                        <span>{th.label}</span>
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+              </div>
+            {/if}
+
+            {#if tab === "audio"}
+              <div class="group">
+                <span class="group-head">Entrada de áudio</span>
+                <div class="field">
+                  <label for="dev">Microfone</label>
+                  <select id="dev" bind:value={settings.audio_device}>
+                    <option value={null}>Padrão do sistema</option>
+                    {#each devices as d}
+                      <option value={d}>{d}</option>
+                    {/each}
+                  </select>
+                </div>
+              </div>
+
+              <div class="group">
+                <span class="group-head">Detecção de fala (VAD)</span>
+                <label class="switch">
+                  <input type="checkbox" bind:checked={settings.vad_enabled} />
+                  <span class="track"><span class="thumb"></span></span>
+                  <span>Cortar silêncio automaticamente (Silero VAD)</span>
+                </label>
+                <div class="field">
+                  <label for="thr">Sensibilidade <em class="tnum">{settings.vad_threshold.toFixed(2)}</em></label>
+                  <input id="thr" type="range" min="0.1" max="0.9" step="0.05" bind:value={settings.vad_threshold} />
+                </div>
+                <div class="field">
+                  <label for="pad">Folga antes e depois da fala <em class="tnum">{settings.speech_pad_ms} ms</em></label>
+                  <input id="pad" type="range" min="0" max="400" step="10" bind:value={settings.speech_pad_ms} />
+                </div>
+                <div class="field">
+                  <label for="sil">Silêncio mínimo entre trechos <em class="tnum">{settings.min_silence_ms} ms</em></label>
+                  <input id="sil" type="range" min="50" max="1000" step="50" bind:value={settings.min_silence_ms} />
+                </div>
+              </div>
+
+              <div class="group">
+                <span class="group-head">Limpeza do texto</span>
+                <label class="switch">
+                  <input type="checkbox" bind:checked={settings.filler_removal} />
+                  <span class="track"><span class="thumb"></span></span>
+                  <span>Remover muletas de fala (né, tipo, hum…)</span>
+                </label>
+                <div class="field">
+                  <label for="fill">Palavras a remover (uma por linha)</label>
+                  <textarea id="fill" rows="5" bind:value={fillerText}></textarea>
+                </div>
+              </div>
+            {/if}
+
+            {#if tab === "models"}
+              <p class="hint lead">Os modelos são baixados do Hugging Face e ficam armazenados no seu
+                computador. Nada é enviado para a internet além do próprio download.</p>
+              <div class="group">
+                {#each models as m, i}
+                  <div class="model" class:divided={i > 0}>
+                    <div class="model-info">
+                      <div class="model-name">{m.info.label}</div>
+                      <div class="model-meta tnum">
+                        {m.info.filename} · {fmtBytes(m.info.size_bytes)}
+                        {#if m.present}<span class="ok"><Icon name="check-circle" size={14} /> instalado</span>{/if}
+                      </div>
+                      {#if downloads[m.info.id] && !downloads[m.info.id].done && !downloads[m.info.id].error}
+                        <div class="bar"><span style={`width:${downloads[m.info.id].pct}%`}></span></div>
+                        <div class="pct tnum">{downloads[m.info.id].pct.toFixed(1)}%</div>
+                      {/if}
+                      {#if downloads[m.info.id]?.error}
+                        <div class="err-text">{downloads[m.info.id].error}</div>
+                      {/if}
+                    </div>
+                    <button class="btn" onclick={() => download(m.info.id)} disabled={!!downloads[m.info.id] && !downloads[m.info.id].done && !downloads[m.info.id].error}>
+                      {#if downloads[m.info.id] && !downloads[m.info.id].done && !downloads[m.info.id].error}
+                        Baixando…
+                      {:else}
+                        <Icon name="download-simple" size={15} />
+                        {m.present ? "Baixar de novo" : "Baixar"}
+                      {/if}
+                    </button>
+                  </div>
+                {/each}
+              </div>
+              <div class="afoot">
+                <button class="btn" onclick={() => api.reloadEngine()}>Recarregar modelo de voz</button>
+              </div>
+            {/if}
+
+            {#if tab === "llm"}
+              <div class="group">
+                <span class="group-head">Correção com IA</span>
+                <label class="switch">
+                  <input type="checkbox" bind:checked={settings.llm_enabled} />
+                  <span class="track"><span class="thumb"></span></span>
+                  <span>Corrigir a fala com IA (reescreve o texto como você quis dizer)</span>
+                </label>
+                <div class="field">
+                  <label for="bk">Backend</label>
+                  <select id="bk" bind:value={settings.llm_backend}>
+                    <option value="local">Local (Gemma via llama-server)</option>
+                    <option value="open_ai_compatible">Compatível com OpenAI</option>
+                    <option value="anthropic">Anthropic</option>
+                    <option value="ollama">Ollama</option>
+                  </select>
+                </div>
+                {#if settings.llm_backend === "local"}
+                  <div class="field">
+                    <label for="lm">Modelo local</label>
+                    <select id="lm" bind:value={settings.llm_local_model}>
+                      {#each models.filter((m) => m.info.kind === "llm") as m}
+                        <option value={m.info.filename}>{m.info.label}</option>
+                      {/each}
+                    </select>
+                  </div>
+                  <div class="afoot">
+                    <button class="btn" onclick={() => api.restartLlm()}>Reiniciar servidor local</button>
+                  </div>
                 {/if}
-                {#if downloads[m.info.id]?.error}
-                  <div class="err-text">{downloads[m.info.id].error}</div>
+              </div>
+
+              <div class="group">
+                <span class="group-head">Conexão</span>
+                <div class="field">
+                  <label for="ep">Endpoint</label>
+                  <input id="ep" bind:value={settings.llm_endpoint} />
+                </div>
+                <div class="field">
+                  <label for="mn">Nome do modelo</label>
+                  <input id="mn" bind:value={settings.llm_model_name} />
+                </div>
+                {#if settings.llm_backend !== "local"}
+                  <div class="field">
+                    <label for="key">Chave de API</label>
+                    <input id="key" type="password" bind:value={settings.llm_api_key} />
+                  </div>
+                {/if}
+                <div class="field">
+                  <label for="to">Tempo limite <em class="tnum">{settings.llm_timeout_ms} ms</em></label>
+                  <input id="to" type="range" min="500" max="8000" step="100" bind:value={settings.llm_timeout_ms} />
+                </div>
+                <div class="field">
+                  <label for="tmp">Temperatura <em class="tnum">{settings.llm_temperature.toFixed(2)}</em></label>
+                  <input id="tmp" type="range" min="0" max="1" step="0.05" bind:value={settings.llm_temperature} />
+                </div>
+                <div class="row">
+                  <button class="btn" onclick={testLlm}>Testar conexão</button>
+                  {#if llmTest}<span class="hint">{llmTest}</span>{/if}
+                </div>
+              </div>
+            {/if}
+
+            {#if tab === "dictionary"}
+              <p class="hint lead">Substituições exatas aplicadas ao texto reconhecido, ideais para nomes
+                próprios, termos técnicos e siglas.</p>
+              <div class="dict-add">
+                <input placeholder="como é falado" bind:value={dictKey} />
+                <span class="arrow"><Icon name="arrow-right" size={16} /></span>
+                <input placeholder="substituição exata" bind:value={dictVal} />
+                <button class="btn primary" onclick={addDict}>Adicionar</button>
+              </div>
+              <div class="group">
+                {#each Object.entries(settings.dictionary) as [k, v], i}
+                  <div class="dict-row" class:divided={i > 0}>
+                    <span class="k">{k}</span>
+                    <span class="arrow"><Icon name="arrow-right" size={15} /></span>
+                    <span class="v">{v}</span>
+                    <button class="btn ghost danger" onclick={() => removeDict(k)}>Remover</button>
+                  </div>
+                {/each}
+                {#if Object.keys(settings.dictionary).length === 0}
+                  <div class="empty">
+                    <Icon name="book-open-text" size={26} />
+                    <p>Nenhuma entrada ainda.</p>
+                  </div>
                 {/if}
               </div>
-              <button class="btn" onclick={() => download(m.info.id)} disabled={!!downloads[m.info.id] && !downloads[m.info.id].done && !downloads[m.info.id].error}>
-                {m.present ? "Baixar novamente" : "Baixar"}
-              </button>
-            </div>
-          {/each}
-          <div>
-            <button class="btn" onclick={() => api.reloadEngine()}>Recarregar modelo de voz</button>
-          </div>
-        {/if}
-
-        {#if tab === "llm"}
-          <div class="card group">
-            <h2>Correção com IA</h2>
-            <label class="switch">
-              <input type="checkbox" bind:checked={settings.llm_enabled} />
-              <span class="track"><span class="thumb"></span></span>
-              <span>Corrigir a fala com IA (reescreve o texto como você quis dizer)</span>
-            </label>
-            <div class="field">
-              <label for="bk">Backend</label>
-              <select id="bk" bind:value={settings.llm_backend}>
-                <option value="local">Local (Gemma via llama-server)</option>
-                <option value="open_ai_compatible">Compatível com OpenAI</option>
-                <option value="anthropic">Anthropic</option>
-                <option value="ollama">Ollama</option>
-              </select>
-            </div>
-            {#if settings.llm_backend === "local"}
-              <div class="field">
-                <label for="lm">Modelo local</label>
-                <select id="lm" bind:value={settings.llm_local_model}>
-                  {#each models.filter((m) => m.info.kind === "llm") as m}
-                    <option value={m.info.filename}>{m.info.label}</option>
-                  {/each}
-                </select>
-              </div>
-              <div>
-                <button class="btn" onclick={() => api.restartLlm()}>Reiniciar servidor local</button>
-              </div>
             {/if}
           </div>
-
-          <div class="card group">
-            <h2>Conexão</h2>
-            <div class="field">
-              <label for="ep">Endpoint</label>
-              <input id="ep" bind:value={settings.llm_endpoint} />
-            </div>
-            <div class="field">
-              <label for="mn">Nome do modelo</label>
-              <input id="mn" bind:value={settings.llm_model_name} />
-            </div>
-            {#if settings.llm_backend !== "local"}
-              <div class="field">
-                <label for="key">Chave de API</label>
-                <input id="key" type="password" bind:value={settings.llm_api_key} />
-              </div>
-            {/if}
-            <div class="field">
-              <label for="to">Tempo limite: {settings.llm_timeout_ms} ms</label>
-              <input id="to" type="range" min="500" max="8000" step="100" bind:value={settings.llm_timeout_ms} />
-            </div>
-            <div class="field">
-              <label for="tmp">Temperatura: {settings.llm_temperature.toFixed(2)}</label>
-              <input id="tmp" type="range" min="0" max="1" step="0.05" bind:value={settings.llm_temperature} />
-            </div>
-            <div class="row">
-              <button class="btn" onclick={testLlm}>Testar conexão</button>
-              {#if llmTest}<span class="hint">{llmTest}</span>{/if}
-            </div>
-          </div>
-        {/if}
-
-        {#if tab === "dictionary"}
-          <p class="hint">
-            Substituições exatas aplicadas ao texto reconhecido, ideais para nomes próprios,
-            termos técnicos e siglas.
-          </p>
-          <div class="card group">
-            <div class="dict-add">
-              <input placeholder="como é falado" bind:value={dictKey} />
-              <span class="arrow">→</span>
-              <input placeholder="substituição exata" bind:value={dictVal} />
-              <button class="btn primary" onclick={addDict}>Adicionar</button>
-            </div>
-          </div>
-          <div class="dict-list">
-            {#each Object.entries(settings.dictionary) as [k, v]}
-              <div class="card dict-row">
-                <span class="k">{k}</span>
-                <span class="arrow">→</span>
-                <span class="v">{v}</span>
-                <button class="btn danger" onclick={() => removeDict(k)}>Remover</button>
-              </div>
-            {/each}
-            {#if Object.keys(settings.dictionary).length === 0}
-              <p class="hint">Nenhuma entrada ainda.</p>
-            {/if}
-          </div>
-        {/if}
+        {/key}
       </section>
     </div>
   {:else}
@@ -534,36 +588,40 @@
 
 <style>
   .shell {
+    position: relative;
     height: 100vh;
     display: flex;
     flex-direction: column;
+    background: var(--paper);
+    border: 1px solid var(--paper-edge);
+    border-radius: 12px;
+    overflow: hidden;
   }
 
   .head-actions {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
   }
 
   .saved-chip {
-    color: var(--good);
-    background: var(--good-soft);
-    border: 1px solid rgba(111, 220, 174, 0.3);
-    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--sage-text);
+    font-size: 13px;
     font-weight: 600;
-    padding: 4px 10px;
-    border-radius: 999px;
-    animation: chip-in 0.2s ease;
+    animation: chip-in 0.24s ease;
   }
 
   @keyframes chip-in {
     from {
       opacity: 0;
-      transform: scale(0.9);
+      transform: translateX(6px);
     }
     to {
       opacity: 1;
-      transform: scale(1);
+      transform: translateX(0);
     }
   }
 
@@ -574,116 +632,156 @@
   }
 
   nav {
-    width: 190px;
+    width: 218px;
     flex: 0 0 auto;
-    padding: 14px 10px;
-    border-right: 1px solid var(--stroke);
+    padding: 18px 14px;
+    border-right: 1px solid var(--line);
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 3px;
   }
 
-  .tab {
+  .nav-item {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 11px;
+    width: 100%;
     text-align: left;
-    padding: 10px 12px;
+    padding: 10px 13px;
     border-radius: var(--radius-sm);
+    font-family: var(--font-body);
+    font-weight: 500;
+    font-size: 14.5px;
+    color: var(--ink-soft);
+    transition: background 0.16s ease, color 0.16s ease;
+  }
+
+  .nav-item :global(.ph) {
+    color: var(--ink-faint);
+    transition: color 0.16s ease;
+  }
+
+  .nav-item:hover {
+    background: var(--paper-sunk);
+    color: var(--ink);
+  }
+
+  .nav-item.active {
+    background: var(--terra-soft);
+    color: var(--terra-text);
     font-weight: 600;
-    font-size: 13px;
-    color: var(--text-soft);
-    border: 1px solid transparent;
-    transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
   }
 
-  .tab:hover {
-    background: var(--glass);
-    color: var(--text);
+  .nav-item.active :global(.ph) {
+    color: var(--terra);
   }
 
-  .tab.active {
-    background: var(--accent-soft);
-    border-color: rgba(140, 150, 255, 0.30);
-    color: var(--accent-text);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  }
-
-  .tab:focus-visible {
+  .nav-item:focus-visible {
     outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-soft);
+    box-shadow: 0 0 0 2px var(--terra-soft);
   }
 
   .panel {
     flex: 1;
     overflow-y: auto;
-    padding: 20px 24px 28px;
+    padding: 28px 34px 36px;
+  }
+
+  .panel-inner {
+    max-width: 600px;
     display: flex;
     flex-direction: column;
     gap: 16px;
   }
 
-  .group {
-    padding: 16px 18px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
+  .panel-title {
+    margin: 0 0 6px;
+    font-size: var(--t-display);
   }
 
-  .group h2 {
-    margin: 0;
+  .group {
+    padding: 18px 20px;
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+  }
+
+  .group-head {
+    font-family: var(--font-body);
     font-size: 12px;
-    font-weight: 700;
+    font-weight: 600;
+    letter-spacing: 0.05em;
     text-transform: uppercase;
-    letter-spacing: 0.8px;
-    color: var(--text-faint);
+    color: var(--ink-faint);
   }
 
   .field {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
   }
 
-  .field label {
-    font-size: 12.5px;
+  .field label,
+  .field .cap {
+    font-family: var(--font-body);
+    font-size: 13.5px;
     font-weight: 600;
-    color: var(--text-soft);
+    color: var(--ink-soft);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .field label em {
+    font-style: normal;
+    color: var(--terra-text);
+    font-weight: 600;
+    margin-left: auto;
+  }
+
+  .field select,
+  .field > input,
+  .field textarea {
+    max-width: 440px;
   }
 
   .hotkey {
     display: flex;
     gap: 8px;
+    max-width: 440px;
   }
 
   .hotkey input {
     flex: 1;
+    font-feature-settings: "tnum" 1;
   }
 
   .hotkey input.capturing {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-soft);
-    animation: capture-glow 1.2s ease-in-out infinite;
+    border-color: var(--terra);
+    box-shadow: 0 0 0 3px var(--terra-soft);
+    animation: capture-glow 1.3s ease-in-out infinite;
   }
 
   @keyframes capture-glow {
     0%,
     100% {
-      box-shadow: 0 0 0 3px var(--accent-soft);
+      box-shadow: 0 0 0 3px var(--terra-soft);
     }
     50% {
-      box-shadow: 0 0 0 5px rgba(140, 150, 255, 0.26);
+      box-shadow: 0 0 0 5px var(--terra-glow);
     }
   }
 
   .switch {
     display: flex;
     align-items: center;
-    gap: 11px;
-    font-size: 13.5px;
+    gap: 13px;
+    font-size: 14.5px;
     cursor: pointer;
-    color: var(--text);
+    color: var(--ink);
   }
 
   .switch input {
@@ -694,12 +792,12 @@
   }
 
   .switch .track {
-    width: 38px;
-    height: 22px;
+    width: 40px;
+    height: 23px;
     flex: 0 0 auto;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.10);
-    border: 1px solid var(--stroke);
+    background: var(--paper-sunk);
+    border: 1px solid var(--line-strong);
     padding: 2px;
     display: flex;
     align-items: center;
@@ -707,26 +805,67 @@
   }
 
   .switch .thumb {
-    width: 16px;
-    height: 16px;
+    width: 17px;
+    height: 17px;
     border-radius: 50%;
-    background: #fff;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+    background: #faf9f5;
+    box-shadow: var(--shadow-sm);
     transform: translateX(0);
-    transition: transform 0.2s ease;
+    transition: transform 0.2s cubic-bezier(0.3, 0.7, 0.4, 1);
   }
 
   .switch input:checked + .track {
-    background: linear-gradient(135deg, rgba(140, 150, 255, 0.9), rgba(120, 110, 245, 0.9));
-    border-color: rgba(170, 178, 255, 0.5);
+    background: var(--terra);
+    border-color: var(--terra);
   }
 
   .switch input:checked + .track .thumb {
-    transform: translateX(16px);
+    transform: translateX(17px);
   }
 
   .switch input:focus-visible + .track {
-    box-shadow: 0 0 0 3px var(--accent-soft);
+    box-shadow: 0 0 0 3px var(--terra-soft);
+  }
+
+  .theme-seg {
+    display: inline-flex;
+    gap: 3px;
+    background: var(--paper-sunk);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 3px;
+  }
+
+  .seg {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 7px;
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-faint);
+    transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+  }
+
+  .seg:hover {
+    color: var(--ink);
+  }
+
+  .seg.active {
+    background: var(--field);
+    color: var(--terra-text);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .seg.active :global(.ph) {
+    color: var(--terra);
+  }
+
+  .seg:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--terra-soft);
   }
 
   .row {
@@ -742,19 +881,35 @@
     white-space: nowrap;
   }
 
+  .afoot {
+    margin-top: 2px;
+  }
+
   .hint {
-    font-size: 12.5px;
-    line-height: 1.5;
-    color: var(--text-faint);
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--ink-faint);
     margin: 0;
+  }
+
+  .hint.lead {
+    max-width: 520px;
+    margin-bottom: 4px;
+    color: var(--ink-soft);
   }
 
   .model {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 14px;
-    padding: 14px 16px;
+    gap: 16px;
+    padding: 4px 0;
+  }
+
+  .model.divided {
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+    margin-top: 1px;
   }
 
   .model-info {
@@ -763,54 +918,64 @@
   }
 
   .model-name {
+    font-family: var(--font-display);
+    font-size: var(--t-title);
     font-weight: 600;
-    font-size: 13.5px;
+    color: var(--ink);
   }
 
   .model-meta {
-    font-size: 11.5px;
-    color: var(--text-faint);
-    margin-top: 3px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 12.5px;
+    color: var(--ink-faint);
+    margin-top: 4px;
   }
 
   .ok {
-    color: var(--good);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--sage-text);
     font-weight: 600;
-    margin-left: 6px;
   }
 
   .bar {
-    margin-top: 9px;
-    height: 6px;
-    background: rgba(255, 255, 255, 0.08);
-    border-radius: 6px;
+    margin-top: 11px;
+    height: 5px;
+    max-width: 360px;
+    background: var(--paper-sunk);
+    border-radius: 5px;
     overflow: hidden;
   }
 
   .bar span {
     display: block;
     height: 100%;
-    border-radius: 6px;
-    background: linear-gradient(90deg, var(--accent-deep), var(--accent-2));
-    transition: width 0.25s ease;
+    border-radius: 5px;
+    background: var(--terra);
+    transition: width 0.3s ease;
   }
 
   .pct {
-    margin-top: 5px;
-    font-size: 11px;
-    color: var(--text-faint);
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--ink-faint);
   }
 
   .err-text {
     color: var(--danger);
-    font-size: 11.5px;
-    margin-top: 6px;
+    font-size: 13px;
+    margin-top: 7px;
   }
 
   .dict-add {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
+    max-width: 600px;
   }
 
   .dict-add input {
@@ -819,40 +984,67 @@
   }
 
   .arrow {
-    color: var(--text-faint);
+    color: var(--ink-faint);
     flex: 0 0 auto;
-  }
-
-  .dict-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+    display: inline-flex;
   }
 
   .dict-row {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 9px 14px;
+    gap: 12px;
+    padding: 4px 0;
+  }
+
+  .dict-row.divided {
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+    margin-top: 1px;
   }
 
   .dict-row .k {
     font-weight: 600;
+    color: var(--ink);
   }
 
   .dict-row .v {
     flex: 1;
-    color: var(--text-soft);
+    color: var(--ink-soft);
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
+  .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 26px;
+    color: var(--ink-ghost);
+  }
+
+  .empty p {
+    margin: 0;
+    font-size: 14px;
+    color: var(--ink-faint);
+  }
+
   .loading {
     display: grid;
     place-items: center;
     flex: 1;
-    color: var(--text-faint);
+    color: var(--ink-faint);
+    font-size: 16px;
+  }
+
+  @media (max-width: 680px) {
+    nav {
+      width: 188px;
+    }
+    .panel {
+      padding: 22px 22px 30px;
+    }
   }
 </style>

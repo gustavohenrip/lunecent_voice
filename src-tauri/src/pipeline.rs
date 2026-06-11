@@ -184,9 +184,7 @@ async fn run_pipeline(
                 "pipeline-error",
                 PipelineError {
                     stage: "inject".to_string(),
-                    message: format!(
-                        "{err}. Janelas elevadas (como administrador) bloqueiam a colagem; o texto está na área de transferência."
-                    ),
+                    message: format!("{err}. {}", inject_block_hint()),
                 },
             );
         }
@@ -236,6 +234,17 @@ fn maybe_trim(state: &AppState, mono: Vec<f32>) -> Vec<f32> {
             settings.speech_pad_ms,
         ),
         None => mono,
+    }
+}
+
+fn inject_block_hint() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        "Conceda permissão de Acessibilidade nas Configurações do Sistema para colar automaticamente; o texto está na área de transferência."
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        "Janelas elevadas (como administrador) bloqueiam a colagem; o texto está na área de transferência."
     }
 }
 

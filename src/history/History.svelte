@@ -1,14 +1,21 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { fly } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
   import { api, on, getCurrentWindow, type UnlistenFn } from "../lib/ipc";
   import type { HistoryEntry, Stats } from "../lib/types";
+  import Icon from "../lib/Icon.svelte";
 
   let entries = $state<HistoryEntry[]>([]);
   let stats = $state<Stats>({ total_entries: 0, total_words: 0, total_speaking_ms: 0, avg_wpm: 0 });
   let query = $state("");
   let expanded = $state<Set<number>>(new Set());
   let copiedId = $state<number>(0);
+  let confirmClear = $state(false);
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const reduce =
+    typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   onMount(() => {
     let unlisten: UnlistenFn[] = [];
@@ -51,11 +58,12 @@
     refresh();
   }
 
-  async function clearAll() {
-    if (confirm("Apagar todo o histórico?")) {
-      await api.clearHistory().catch(() => {});
-      refresh();
-    }
+  async function doClear() {
+    confirmClear = false;
+    try {
+      await api.clearHistory();
+    } catch (_) {}
+    refresh();
   }
 
   function toggle(id: number) {
@@ -107,94 +115,117 @@
   <header class="titlebar" data-tauri-drag-region>
     <div class="brand">
       <span class="logo"></span>
-      <h1>Lunecent Voice <span>· Histórico e estatísticas</span></h1>
+      <h1>Lunecent Voice <span>· Histórico</span></h1>
     </div>
     <div class="head-actions">
-      <button class="btn danger" onclick={clearAll}>Limpar tudo</button>
+      {#if confirmClear}
+        <span class="confirm-q">Apagar todo o histórico?</span>
+        <button class="btn btn-confirm" onclick={doClear}>Confirmar</button>
+        <button class="btn ghost" onclick={() => (confirmClear = false)}>Cancelar</button>
+      {:else}
+        <button class="btn danger" onclick={() => (confirmClear = true)}>
+          <Icon name="trash" size={15} /> Limpar tudo
+        </button>
+      {/if}
       <div class="winbtns">
         <button class="winbtn" title="Minimizar" aria-label="Minimizar" onclick={minimize}>
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M5 12h14" stroke-linecap="round" />
-          </svg>
+          <Icon name="minus" size={15} />
         </button>
         <button class="winbtn close" title="Fechar" aria-label="Fechar" onclick={() => api.hideWindow("history")}>
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M6 6l12 12M18 6L6 18" stroke-linecap="round" />
-          </svg>
+          <Icon name="x" size={15} />
         </button>
       </div>
     </div>
   </header>
 
-  <div class="stats">
-    <div class="card stat">
-      <span class="num">{stats.total_words.toLocaleString("pt-BR")}</span>
-      <span class="lbl">palavras</span>
+  <div class="body">
+    <div class="stats card">
+      <div class="stat">
+        <span class="num tnum">{stats.total_words.toLocaleString("pt-BR")}</span>
+        <span class="lbl">Palavras</span>
+      </div>
+      <div class="stat">
+        <span class="num tnum">{fmtSpeaking(stats.total_speaking_ms)}</span>
+        <span class="lbl">Tempo falando</span>
+      </div>
+      <div class="stat">
+        <span class="num tnum">{stats.avg_wpm.toFixed(0)}</span>
+        <span class="lbl" title="Palavras por minuto">Média PPM</span>
+      </div>
+      <div class="stat">
+        <span class="num tnum">{stats.total_entries.toLocaleString("pt-BR")}</span>
+        <span class="lbl">Ditados</span>
+      </div>
     </div>
-    <div class="card stat">
-      <span class="num">{fmtSpeaking(stats.total_speaking_ms)}</span>
-      <span class="lbl">tempo falando</span>
-    </div>
-    <div class="card stat">
-      <span class="num">{stats.avg_wpm.toFixed(0)}</span>
-      <span class="lbl" title="Palavras por minuto">média de PPM</span>
-    </div>
-    <div class="card stat">
-      <span class="num">{stats.total_entries.toLocaleString("pt-BR")}</span>
-      <span class="lbl">ditados</span>
-    </div>
-  </div>
 
-  <div class="searchbar">
-    <input placeholder="Buscar no histórico…" bind:value={query} oninput={onSearch} />
-  </div>
+    <div class="toolbar">
+      <div class="search">
+        <Icon name="magnifying-glass" size={17} />
+        <input placeholder="Buscar no histórico…" bind:value={query} oninput={onSearch} />
+      </div>
+      <span class="count tnum">{entries.length} {entries.length === 1 ? "registro" : "registros"}</span>
+    </div>
 
-  <div class="list">
-    {#each entries as e (e.id)}
-      <div class="card entry">
-        <div
-          class="entry-main"
-          onclick={() => toggle(e.id)}
-          onkeydown={(ev) => {
-            if (ev.key === "Enter" || ev.key === " ") toggle(e.id);
-          }}
-          role="button"
-          tabindex="0"
-        >
-          <div class="final">{e.final_text}</div>
-          {#if expanded.has(e.id) && e.raw_text !== e.final_text}
-            <div class="raw">original: {e.raw_text}</div>
-          {/if}
-          <div class="meta">
-            <span>{fmtTime(e.created_at)}</span>
-            <span>·</span>
-            <span>{fmtDuration(e.duration_ms)}</span>
-            <span>·</span>
-            <span title="Palavras por minuto">{wpm(e)} PPM</span>
-            {#if e.on_gpu}<span class="tag gpu">GPU</span>{:else}<span class="tag cpu">CPU</span>{/if}
-            {#if e.llm_used}<span class="tag llm">IA</span>{/if}
+    <div class="list">
+      {#each entries as e, i (e.id)}
+        <div class="entry" in:fly={{ y: 8, duration: reduce ? 0 : 300, delay: reduce ? 0 : Math.min(i * 26, 260), easing: cubicOut }}>
+          <div
+            class="entry-main"
+            onclick={() => toggle(e.id)}
+            onkeydown={(ev) => {
+              if (ev.key === "Enter" || ev.key === " ") toggle(e.id);
+            }}
+            role="button"
+            tabindex="0"
+          >
+            <div class="final">{e.final_text}</div>
+            {#if expanded.has(e.id) && e.raw_text !== e.final_text}
+              <div class="raw"><span class="raw-mark">original</span>{e.raw_text}</div>
+            {/if}
+            <div class="meta tnum">
+              <span>{fmtTime(e.created_at)}</span>
+              <span class="dot">·</span>
+              <span>{fmtDuration(e.duration_ms)}</span>
+              <span class="dot">·</span>
+              <span title="Palavras por minuto">{wpm(e)} PPM</span>
+              {#if e.on_gpu}<span class="tag gpu">GPU</span>{:else}<span class="tag cpu">CPU</span>{/if}
+              {#if e.llm_used}<span class="tag llm">IA</span>{/if}
+            </div>
+          </div>
+          <div class="entry-actions">
+            <button class="btn ghost" onclick={() => copy(e.id)}>
+              <Icon name={copiedId === e.id ? "check-circle" : "copy"} size={15} />
+              {copiedId === e.id ? "Copiado" : "Copiar"}
+            </button>
+            <button class="btn ghost" onclick={() => toDict(e)}>
+              <Icon name="book-bookmark" size={15} /> Dicionário
+            </button>
+            <button class="btn ghost danger" onclick={() => remove(e.id)}>
+              <Icon name="trash" size={15} /> Excluir
+            </button>
           </div>
         </div>
-        <div class="entry-actions">
-          <button class="btn ghost" onclick={() => copy(e.id)}>
-            {copiedId === e.id ? "Copiado" : "Copiar"}
-          </button>
-          <button class="btn ghost" onclick={() => toDict(e)}>Dicionário</button>
-          <button class="btn danger" onclick={() => remove(e.id)}>Excluir</button>
+      {/each}
+      {#if entries.length === 0}
+        <div class="empty">
+          <Icon name="bird" size={36} />
+          <p>Nenhum ditado ainda. Segure o atalho e fale.</p>
         </div>
-      </div>
-    {/each}
-    {#if entries.length === 0}
-      <p class="empty">Nenhum ditado ainda. Segure o atalho e fale.</p>
-    {/if}
+      {/if}
+    </div>
   </div>
 </div>
 
 <style>
   .shell {
+    position: relative;
     height: 100vh;
     display: flex;
     flex-direction: column;
+    background: var(--paper);
+    border: 1px solid var(--paper-edge);
+    border-radius: 12px;
+    overflow: hidden;
   }
 
   .head-actions {
@@ -203,64 +234,123 @@
     gap: 10px;
   }
 
+  .confirm-q {
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--ink-faint);
+  }
+
+  .btn-confirm {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: var(--on-accent);
+  }
+
+  .btn-confirm:hover {
+    background: var(--danger);
+    border-color: var(--danger);
+    filter: brightness(0.92);
+  }
+
+  .body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
   .stats {
+    flex: 0 0 auto;
+    margin: 24px 28px 4px;
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
-    padding: 16px 20px 4px;
+    overflow: hidden;
   }
 
   .stat {
-    padding: 14px 16px;
+    padding: 18px 22px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 5px;
+    border-left: 1px solid var(--line);
+  }
+
+  .stat:first-child {
+    border-left: none;
   }
 
   .num {
-    font-size: 22px;
-    font-weight: 700;
-    background: linear-gradient(90deg, #d6d9ff, #aab0ff);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+    font-family: var(--font-display);
+    font-size: var(--t-figure);
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: var(--ink);
   }
 
   .lbl {
-    font-size: 11px;
-    color: var(--text-faint);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    font-size: var(--t-meta);
+    color: var(--ink-faint);
+    font-weight: 500;
   }
 
-  .searchbar {
-    padding: 12px 20px;
+  .toolbar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 28px 14px;
   }
 
-  .searchbar input {
+  .search {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .search :global(.ph) {
+    position: absolute;
+    left: 13px;
+    color: var(--ink-ghost);
+    pointer-events: none;
+  }
+
+  .search input {
     width: 100%;
+    padding-left: 40px;
+  }
+
+  .count {
+    flex: 0 0 auto;
+    font-size: var(--t-meta);
+    color: var(--ink-faint);
   }
 
   .list {
     flex: 1;
     overflow-y: auto;
-    padding: 0 20px 20px;
+    padding: 0 28px 24px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 9px;
   }
 
   .entry {
     display: flex;
-    gap: 12px;
+    gap: 14px;
     align-items: flex-start;
-    padding: 13px 15px;
-    transition: border-color 0.16s ease, background 0.16s ease;
+    padding: 15px 17px;
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    transition: border-color 0.16s ease, box-shadow 0.16s ease;
   }
 
   .entry:hover {
-    border-color: var(--stroke-strong);
-    background: var(--glass-strong);
+    border-color: var(--line-strong);
+    box-shadow: var(--shadow-sm);
   }
 
   .entry-main {
@@ -270,50 +360,70 @@
   }
 
   .final {
-    font-size: 14px;
-    line-height: 1.45;
+    font-family: var(--font-body);
+    font-size: 15.5px;
+    line-height: 1.5;
+    color: var(--ink);
     overflow-wrap: anywhere;
   }
 
   .raw {
-    margin-top: 6px;
-    font-size: 12px;
-    color: var(--text-faint);
-    font-style: italic;
+    margin-top: 9px;
+    padding-left: 12px;
+    border-left: 2px solid var(--line-strong);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ink-faint);
     overflow-wrap: anywhere;
   }
 
+  .raw-mark {
+    display: inline-block;
+    margin-right: 7px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink-ghost);
+    vertical-align: 1px;
+  }
+
   .meta {
-    margin-top: 8px;
+    margin-top: 11px;
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 7px;
-    font-size: 11px;
-    color: var(--text-faint);
+    gap: 8px;
+    font-size: var(--t-meta);
+    color: var(--ink-faint);
+  }
+
+  .meta .dot {
+    color: var(--ink-ghost);
   }
 
   .tag {
-    font-size: 10px;
-    font-weight: 700;
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
     padding: 2px 8px;
-    border-radius: 999px;
-    letter-spacing: 0.4px;
+    border-radius: var(--radius-xs);
   }
 
   .tag.gpu {
-    background: var(--good-soft);
-    color: var(--good);
+    background: var(--sage-soft);
+    color: var(--sage-text);
   }
 
   .tag.cpu {
-    background: var(--warn-soft);
-    color: var(--warn);
+    background: var(--paper-sunk);
+    color: var(--ink-faint);
   }
 
   .tag.llm {
-    background: var(--accent-soft);
-    color: var(--accent-text);
+    background: var(--terra-soft);
+    color: var(--terra-text);
   }
 
   .entry-actions {
@@ -322,17 +432,56 @@
     gap: 4px;
     flex: 0 0 auto;
     opacity: 0;
-    transition: opacity 0.18s ease;
+    transform: translateX(5px);
+    transition: opacity 0.18s ease, transform 0.18s ease;
+  }
+
+  .entry-actions .btn {
+    justify-content: flex-start;
+    padding: 6px 11px;
+    border-color: transparent;
+    font-size: 13px;
   }
 
   .entry:hover .entry-actions,
   .entry:focus-within .entry-actions {
     opacity: 1;
+    transform: translateX(0);
   }
 
   .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 13px;
     text-align: center;
-    color: var(--text-faint);
-    padding: 40px;
+    color: var(--ink-ghost);
+    padding: 52px 40px;
+  }
+
+  .empty p {
+    margin: 0;
+    font-size: 15px;
+    color: var(--ink-faint);
+  }
+
+  @media (max-width: 620px) {
+    .stats {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .stat:nth-child(3) {
+      border-left: none;
+    }
+    .stat:nth-child(n + 3) {
+      border-top: 1px solid var(--line);
+    }
+    .entry {
+      flex-direction: column;
+    }
+    .entry-actions {
+      flex-direction: row;
+      opacity: 1;
+      transform: none;
+    }
   }
 </style>

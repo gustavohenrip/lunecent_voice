@@ -35,6 +35,13 @@ desktop.ini
 .env
 .env.*
 
+# auto-generated mobile icons (desktop-only project)
+/src-tauri/icons/android
+/src-tauri/icons/ios
+
+# raw source images (banner lives in .github/assets)
+/ChatGPT Image*.png
+
 # local-only working files (kept on disk, never published)
 /.claude
 /CLAUDE.md

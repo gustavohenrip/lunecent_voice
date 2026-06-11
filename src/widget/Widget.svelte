@@ -3,10 +3,11 @@
   import { api, on, getCurrentWindow, type UnlistenFn } from "../lib/ipc";
   import { currentMonitor } from "@tauri-apps/api/window";
   import type { StatusPayload, CompletePayload, PipelineErrorPayload } from "../lib/types";
+  import Icon from "../lib/Icon.svelte";
 
   const BAR_COUNT = 18;
-  const PILL_HALF = 69;
-  const DOCK_NEED = 70;
+  const PILL_HALF = 75;
+  const DOCK_NEED = 74;
 
   let status = $state<StatusPayload>({
     status: "idle",
@@ -23,6 +24,7 @@
   let flash = $state<{ text: string; kind: "ok" | "err" } | null>(null);
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
   let dockSide = $state<"left" | "right">("right");
+  let hovered = $state(false);
 
   const idleText = $derived.by(() => {
     if (!status.audio_available) return "Sem microfone";
@@ -70,11 +72,18 @@
 
   onMount(() => {
     let unlisten: UnlistenFn[] = [];
+    const clearHover = () => (hovered = false);
+    window.addEventListener("blur", clearHover);
     api.getStatus().then((s) => (status = s)).catch(() => {});
     updateDockSide();
     (async () => {
       try {
-        unlisten.push(await getCurrentWindow().onMoved(() => updateDockSide()));
+        unlisten.push(
+          await getCurrentWindow().onMoved(() => {
+            hovered = false;
+            updateDockSide();
+          }),
+        );
         unlisten.push(await getCurrentWindow().onResized(() => updateDockSide()));
         unlisten.push(await getCurrentWindow().onScaleChanged(() => updateDockSide()));
         unlisten.push(
@@ -102,6 +111,7 @@
     })();
     return () => {
       clearTimeout(flashTimer);
+      window.removeEventListener("blur", clearHover);
       unlisten.forEach((u) => u());
     };
   });
@@ -113,34 +123,29 @@
 
 {#snippet dockButtons()}
   <button class="icon" aria-label="Ajustes" onclick={() => api.openWindow("settings")}>
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <line x1="4" y1="8" x2="14" y2="8" />
-      <line x1="18" y1="8" x2="20" y2="8" />
-      <line x1="4" y1="16" x2="10" y2="16" />
-      <line x1="14" y1="16" x2="20" y2="16" />
-      <circle cx="16" cy="8" r="2" />
-      <circle cx="12" cy="16" r="2" />
-    </svg>
+    <Icon name="gear-six" size={15} />
   </button>
   <button class="icon" aria-label="Histórico" onclick={() => api.openWindow("history")}>
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-      <path d="M3 3v5h5" />
-      <path d="M12 7v5l4 2" />
-    </svg>
+    <Icon name="clock-counter-clockwise" size={15} />
   </button>
 {/snippet}
 
-<div class="stage">
-  <div class="dock left" class:active={dockSide === "left"}>
+<div
+  class="stage"
+  role="toolbar"
+  tabindex="-1"
+  aria-label="Lunecent Voice"
+  onpointerenter={() => (hovered = true)}
+  onpointerleave={() => (hovered = false)}
+  onpointercancel={() => (hovered = false)}
+>
+  <div class="dock left" class:active={dockSide === "left"} class:show={hovered && dockSide === "left"}>
     {@render dockButtons()}
   </div>
 
   <div class="pill" data-state={status.status} data-tauri-drag-region>
-    <span class="sheen"></span>
-
     <button
-      class="orb"
+      class="seal"
       data-state={status.status}
       onclick={toggle}
       aria-label={status.status === "recording" ? "Parar gravação" : "Iniciar gravação"}
@@ -153,7 +158,7 @@
       {#if status.status === "recording"}
         <div class="wave" aria-label="Nível do microfone">
           {#each levels as value}
-            <span class="bar" style={`height:${(2 + value * 14).toFixed(1)}px`}></span>
+            <span class="bar" style={`height:${(2 + value * 13).toFixed(1)}px`}></span>
           {/each}
         </div>
       {:else if flash}
@@ -168,7 +173,7 @@
     </div>
   </div>
 
-  <div class="dock right" class:active={dockSide === "right"}>
+  <div class="dock right" class:active={dockSide === "right"} class:show={hovered && dockSide === "right"}>
     {@render dockButtons()}
   </div>
 </div>
@@ -186,99 +191,65 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    padding: 0 2px;
+    gap: 7px;
+    padding: 0 3px;
   }
 
   .dock {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
     flex: 0 0 auto;
-    width: 57px;
+    width: 60px;
     opacity: 0;
     pointer-events: none;
     transition:
-      opacity 0.24s ease,
-      transform 0.42s cubic-bezier(0.34, 1.56, 0.64, 1);
+      opacity 0.2s ease,
+      transform 0.36s cubic-bezier(0.22, 0.7, 0.3, 1);
   }
 
   .dock.left {
     justify-content: flex-end;
-    transform: translateX(14px);
+    transform: translateX(12px);
   }
 
   .dock.right {
     justify-content: flex-start;
-    transform: translateX(-14px);
+    transform: translateX(-12px);
   }
 
-  .stage:hover .dock.active {
+  .dock.show {
     opacity: 1;
     transform: translateX(0);
     pointer-events: auto;
   }
 
-  .stage:hover .dock.active .icon:nth-child(2) {
-    transition-delay: 0.05s;
+  .dock.show .icon:nth-child(2) {
+    transition-delay: 0.04s;
   }
 
   .pill {
     position: relative;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 9px;
     flex: 0 0 auto;
-    width: 138px;
-    height: 28px;
-    padding: 0 9px 0 4px;
-    border-radius: 14px;
-    overflow: hidden;
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.03) 48%, rgba(255, 255, 255, 0.07)),
-      linear-gradient(135deg, rgba(38, 40, 48, 0.72), rgba(18, 19, 24, 0.78));
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.32),
-      inset 0 -1px 1px rgba(0, 0, 0, 0.28),
-      inset 1px 0 0 rgba(255, 255, 255, 0.07),
-      inset -1px 0 0 rgba(255, 255, 255, 0.07);
-    color: #f4f5f8;
+    width: 150px;
+    height: 32px;
+    padding: 0 13px 0 6px;
+    border-radius: 16px;
+    background: var(--paper-raised);
+    border: 1px solid var(--line-strong);
+    box-shadow: var(--shadow);
+    color: var(--ink);
     transition: border-color 0.25s ease;
   }
 
-  .sheen {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 46%;
-    border-radius: 14px 14px 40% 40%;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.015));
-    pointer-events: none;
-  }
-
-  .pill::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: 14px;
-    background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.10) 46%, rgba(255, 255, 255, 0.02) 54%, transparent 70%);
-    background-size: 240% 100%;
-    background-position: 120% 0;
-    pointer-events: none;
-    transition: background-position 0.9s ease;
-  }
-
-  .pill:hover::after {
-    background-position: -120% 0;
-  }
-
   .pill[data-state="recording"] {
-    border-color: rgba(255, 120, 130, 0.45);
+    border-color: var(--terra-line);
   }
 
-  .orb {
+  .seal {
     position: relative;
     width: 22px;
     height: 22px;
@@ -294,68 +265,57 @@
     width: 13px;
     height: 13px;
     border-radius: 50%;
-    background:
-      radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.18) 46%),
-      linear-gradient(150deg, #e9ecf2, #9aa0ad 70%, #767c89);
-    box-shadow:
-      inset 0 -1px 2px rgba(0, 0, 0, 0.25),
-      0 1px 4px rgba(0, 0, 0, 0.35);
-    transition: background 0.3s ease, box-shadow 0.3s ease, transform 0.25s ease;
+    background: var(--terra);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+    transition: transform 0.25s ease, background 0.3s ease;
   }
 
   .halo {
     position: absolute;
     inset: 0;
     margin: auto;
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     border-radius: 50%;
     border: 1.5px solid transparent;
     box-sizing: border-box;
     transition: border-color 0.3s ease;
   }
 
-  .orb:hover .core {
-    transform: scale(1.08);
+  .seal:hover .core {
+    transform: scale(1.1);
   }
 
-  .orb[data-state="recording"] .core {
-    background:
-      radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.1) 46%),
-      linear-gradient(150deg, #ff8d96, #e74c5e 70%, #c63a4d);
-    box-shadow:
-      inset 0 -1px 2px rgba(0, 0, 0, 0.3),
-      0 1px 5px rgba(190, 40, 60, 0.4);
+  .seal[data-state="recording"] .core {
+    background: var(--terra-bright);
   }
 
-  .orb[data-state="recording"] .halo {
-    border-color: rgba(240, 90, 105, 0.5);
-    animation: pulse 1.4s ease-out infinite;
+  .seal[data-state="recording"] .halo {
+    border-color: var(--terra);
+    animation: pulse 1.5s ease-out infinite;
   }
 
-  .orb[data-state="processing"] .halo {
+  .seal[data-state="processing"] .halo {
     border-color: transparent;
-    border-top-color: rgba(255, 255, 255, 0.75);
+    border-top-color: var(--terra);
     animation: spin 0.85s linear infinite;
   }
 
-  .orb[data-state="loading"] .core {
-    animation: breathe 1.5s ease-in-out infinite;
+  .seal[data-state="loading"] .core {
+    animation: breathe 1.6s ease-in-out infinite;
   }
 
-  .orb[data-state="error"] .core {
-    background:
-      radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.1) 46%),
-      linear-gradient(150deg, #f0a3a3, #c96a6a);
+  .seal[data-state="error"] .core {
+    background: var(--danger);
   }
 
   @keyframes pulse {
     0% {
-      transform: scale(0.85);
-      opacity: 0.9;
+      transform: scale(0.78);
+      opacity: 0.8;
     }
     100% {
-      transform: scale(1.3);
+      transform: scale(1.4);
       opacity: 0;
     }
   }
@@ -369,11 +329,11 @@
   @keyframes breathe {
     0%,
     100% {
-      transform: scale(0.85);
-      opacity: 0.6;
+      transform: scale(0.84);
+      opacity: 0.65;
     }
     50% {
-      transform: scale(1.05);
+      transform: scale(1.08);
       opacity: 1;
     }
   }
@@ -394,36 +354,29 @@
   }
 
   .brand {
-    font-size: 11px;
+    font-family: var(--font-body);
+    font-size: 12.5px;
     font-weight: 600;
-    letter-spacing: 0.2px;
+    letter-spacing: -0.005em;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: rgba(248, 249, 252, 0.92);
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+    color: var(--ink);
     pointer-events: none;
   }
 
   .brand.dim {
-    color: rgba(240, 242, 248, 0.55);
+    color: var(--ink-faint);
     font-weight: 500;
-    font-size: 10px;
   }
 
   .brand.shimmer {
-    background: linear-gradient(
-      90deg,
-      rgba(244, 245, 248, 0.45) 20%,
-      #ffffff 40%,
-      rgba(244, 245, 248, 0.45) 60%
-    );
+    background: linear-gradient(90deg, var(--ink-ghost) 20%, var(--terra) 48%, var(--ink-ghost) 72%);
     background-size: 220% 100%;
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
-    text-shadow: none;
-    animation: shimmer 1.5s linear infinite;
+    animation: shimmer 1.6s linear infinite;
   }
 
   @keyframes shimmer {
@@ -436,18 +389,19 @@
   }
 
   .flash {
-    font-size: 10px;
+    font-family: var(--font-body);
+    font-size: 12px;
     font-weight: 500;
-    color: #b9f0d4;
+    color: var(--sage-text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     pointer-events: none;
-    animation: fadein 0.22s ease;
+    animation: fadein 0.24s ease;
   }
 
   .flash.err {
-    color: #ffacb8;
+    color: var(--danger);
   }
 
   @keyframes fadein {
@@ -464,8 +418,8 @@
   .wave {
     display: flex;
     align-items: center;
-    gap: 1.5px;
-    height: 18px;
+    gap: 1.6px;
+    height: 17px;
     width: 100%;
     pointer-events: none;
   }
@@ -474,35 +428,29 @@
     flex: 1 1 auto;
     min-height: 2px;
     max-width: 3px;
-    border-radius: 1.5px;
-    background: rgba(248, 249, 252, 0.88);
+    border-radius: 2px;
+    background: var(--terra);
     transition: height 60ms ease-out;
   }
 
   .icon {
-    width: 26px;
-    height: 26px;
+    width: 28px;
+    height: 28px;
     flex: 0 0 auto;
     border-radius: 50%;
     display: grid;
     place-items: center;
-    color: rgba(244, 245, 248, 0.9);
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.03)),
-      linear-gradient(135deg, rgba(40, 42, 50, 0.72), rgba(20, 21, 26, 0.78));
-    border: 1px solid rgba(255, 255, 255, 0.20);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.28),
-      0 3px 8px rgba(0, 0, 0, 0.32);
-    transition: background 0.16s ease, color 0.16s ease, transform 0.14s ease;
+    color: var(--ink-soft);
+    background: var(--paper-raised);
+    border: 1px solid var(--line-strong);
+    box-shadow: var(--shadow-sm);
+    transition: color 0.16s ease, border-color 0.16s ease, transform 0.14s ease;
   }
 
   .icon:hover {
-    color: #fff;
+    color: var(--terra);
+    border-color: var(--terra-line);
     transform: translateY(-1px);
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.06)),
-      linear-gradient(135deg, rgba(52, 54, 64, 0.78), rgba(28, 29, 36, 0.82));
   }
 
   .icon:active {
@@ -511,13 +459,10 @@
 
   .icon:focus-visible {
     outline: none;
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.28),
-      0 0 0 2px rgba(255, 255, 255, 0.4);
+    box-shadow: 0 0 0 2px var(--terra-soft);
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .pill::after,
     .icon,
     .bar,
     .dock {
