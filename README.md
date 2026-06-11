@@ -1,4 +1,6 @@
-# Lunecent Voice
+<p align="center">
+  <img src=".github/assets/banner.png" alt="Lunecent Voice" width="100%">
+</p>
 
 Hold a hotkey, talk, release. Your speech is transcribed locally and pasted into
 whatever window has focus. Runs fully offline. Windows first, with a CPU build for
