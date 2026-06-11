@@ -1,0 +1,106 @@
+export type RecordMode = "push_to_talk" | "toggle";
+
+export type LlmBackend = "local" | "open_ai_compatible" | "anthropic" | "ollama";
+
+export type StatusKind =
+  | "idle"
+  | "recording"
+  | "processing"
+  | "loading"
+  | "error";
+
+export interface Settings {
+  hotkey_ptt: string;
+  hotkey_toggle: string;
+  record_mode: RecordMode;
+  language: string;
+  whisper_model: string;
+  audio_device: string | null;
+  vad_enabled: boolean;
+  vad_threshold: number;
+  min_silence_ms: number;
+  speech_pad_ms: number;
+  filler_removal: boolean;
+  filler_words: string[];
+  dictionary: Record<string, string>;
+  llm_enabled: boolean;
+  llm_backend: LlmBackend;
+  llm_local_model: string;
+  llm_endpoint: string;
+  llm_api_key: string;
+  llm_model_name: string;
+  llm_timeout_ms: number;
+  llm_temperature: number;
+  autostart: boolean;
+  restore_clipboard: boolean;
+  paste_delay_ms: number;
+  prefer_gpu: boolean;
+}
+
+export interface StatusPayload {
+  status: StatusKind;
+  recording: boolean;
+  cpu_mode: boolean;
+  engine_ready: boolean;
+  model: string;
+  audio_available: boolean;
+  vad_active: boolean;
+  error: string | null;
+}
+
+export interface HistoryEntry {
+  id: number;
+  created_at: number;
+  duration_ms: number;
+  word_count: number;
+  raw_text: string;
+  final_text: string;
+  language: string;
+  on_gpu: boolean;
+  llm_used: boolean;
+}
+
+export interface Stats {
+  total_entries: number;
+  total_words: number;
+  total_speaking_ms: number;
+  avg_wpm: number;
+}
+
+export interface ModelInfo {
+  id: string;
+  label: string;
+  kind: "whisper" | "llm";
+  filename: string;
+  url: string;
+  size_bytes: number;
+}
+
+export interface ModelStatus {
+  info: ModelInfo;
+  present: boolean;
+  actual_bytes: number;
+}
+
+export interface DownloadProgress {
+  id: string;
+  downloaded: number;
+  total: number;
+  pct: number;
+  done: boolean;
+  error?: string | null;
+}
+
+export interface CompletePayload {
+  raw_text: string;
+  final_text: string;
+  word_count: number;
+  duration_ms: number;
+  on_gpu: boolean;
+  llm_used: boolean;
+}
+
+export interface PipelineErrorPayload {
+  stage: string;
+  message: string;
+}

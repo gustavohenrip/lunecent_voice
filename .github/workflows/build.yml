@@ -1,0 +1,99 @@
+name: build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: gpu
+            args: ""
+          - variant: cpu
+            args: "--no-default-features --features vad --config src-tauri/tauri.cpu.conf.json"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CUDA Toolkit
+        if: matrix.variant == 'gpu'
+        uses: Jimver/cuda-toolkit@v0.2.20
+        with:
+          cuda: "12.8.0"
+          method: network
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "visual_studio_integration"]'
+
+      - name: Install LLVM
+        run: choco install llvm -y
+
+      - name: Export LIBCLANG_PATH
+        shell: pwsh
+        run: echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-${{ matrix.variant }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+
+      - run: npm ci
+
+      - name: Fetch native dependencies (GPU)
+        if: matrix.variant == 'gpu'
+        run: powershell -ExecutionPolicy Bypass -File ./scripts/fetch-deps.ps1
+
+      - name: Fetch VAD model (CPU)
+        if: matrix.variant == 'cpu'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src-tauri/resources | Out-Null
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/snakers4/silero-vad/master/src/silero_vad/data/silero_vad.onnx" -OutFile src-tauri/resources/silero_vad.onnx -UseBasicParsing
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Lunecent Voice ${{ github.ref_name }}"
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Lunecent Voice ${{ github.ref_name }}"
+          releaseDraft: true
+          args: "--no-default-features --features metal,vad"
