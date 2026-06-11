@@ -249,6 +249,16 @@
     border-color: var(--terra-line);
   }
 
+  :global(:root[data-theme="dark"]) .pill {
+    box-shadow: none;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme="light"])) .pill {
+      box-shadow: none;
+    }
+  }
+
   .seal {
     position: relative;
     width: 22px;
