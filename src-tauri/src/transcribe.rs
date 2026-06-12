@@ -1,7 +1,7 @@
 use crate::error::{AppError, AppResult};
+use crate::pipeline::CANCEL;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 pub struct TranscribeEngine {
@@ -59,7 +59,6 @@ impl TranscribeEngine {
         n_threads: i32,
         initial_prompt: Option<&str>,
         translate: bool,
-        cancel: Arc<AtomicBool>,
     ) -> AppResult<String> {
         if samples.is_empty() {
             return Ok(String::new());
@@ -99,17 +98,16 @@ impl TranscribeEngine {
                 params.set_initial_prompt(prompt);
             }
         }
-        let abort = cancel.clone();
-        params.set_abort_callback_safe(move || abort.load(Ordering::Relaxed));
+        params.set_abort_callback_safe(|| CANCEL.load(Ordering::Relaxed));
 
         if let Err(err) = state.full(params, samples) {
-            if cancel.load(Ordering::Relaxed) {
+            if CANCEL.load(Ordering::Relaxed) {
                 return Ok(String::new());
             }
             return Err(AppError::Transcribe(format!("inference failed: {err}")));
         }
 
-        if cancel.load(Ordering::Relaxed) {
+        if CANCEL.load(Ordering::Relaxed) {
             return Ok(String::new());
         }
 

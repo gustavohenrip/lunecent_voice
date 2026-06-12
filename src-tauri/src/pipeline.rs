@@ -2,9 +2,11 @@ use crate::error::{AppError, AppResult};
 use crate::state::{AppState, SharedState, Status};
 use crate::{dictionary, history, inject};
 use serde::Serialize;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
+
+pub static CANCEL: AtomicBool = AtomicBool::new(false);
 
 #[derive(Serialize, Clone)]
 struct CompletePayload {
@@ -33,7 +35,7 @@ pub fn begin_recording(state: &SharedState) {
         state.recording.store(false, Ordering::Release);
         return;
     }
-    state.cancel.store(false, Ordering::Release);
+    CANCEL.store(false, Ordering::Release);
     let not_ready = {
         let meta = state.engine_meta.read();
         if meta.ready {
@@ -65,7 +67,7 @@ pub fn begin_recording(state: &SharedState) {
 }
 
 pub fn cancel_recording(state: &SharedState) {
-    state.cancel.store(true, Ordering::Release);
+    CANCEL.store(true, Ordering::Release);
     if state.recording.swap(false, Ordering::AcqRel) {
         let _ = state.audio.stop();
         state.set_status(Status::Idle);
@@ -131,7 +133,7 @@ async fn run_pipeline(
     let blocking_state = state.clone();
     let lang_for_blocking = language.clone();
     let join = tokio::task::spawn_blocking(move || {
-        if blocking_state.cancel.load(Ordering::Acquire) {
+        if CANCEL.load(Ordering::Acquire) {
             return Ok((String::new(), false));
         }
         let mono = captured.to_mono_16k();
@@ -146,7 +148,7 @@ async fn run_pipeline(
             trimmed.len(),
             vad_start.elapsed().as_millis()
         );
-        if blocking_state.cancel.load(Ordering::Acquire) {
+        if CANCEL.load(Ordering::Acquire) {
             return Ok((String::new(), false));
         }
         let whisper_start = std::time::Instant::now();
@@ -177,7 +179,7 @@ async fn run_pipeline(
 
     tracing::info!("whisper returned {} chars", raw.len());
 
-    if state.cancel.load(Ordering::Acquire) {
+    if CANCEL.load(Ordering::Acquire) {
         let _ = app.emit("transcription-cancelled", ());
         return Ok(());
     }
@@ -212,7 +214,7 @@ async fn run_pipeline(
             tokio::select! {
                 out = &mut cleanup => break out,
                 _ = tokio::time::sleep(std::time::Duration::from_millis(120)) => {
-                    if state.cancel.load(Ordering::Acquire) {
+                    if CANCEL.load(Ordering::Acquire) {
                         let _ = app.emit("transcription-cancelled", ());
                         return Ok(());
                     }
@@ -229,7 +231,7 @@ async fn run_pipeline(
     };
     let llm_used = final_text != processed;
 
-    if state.cancel.load(Ordering::Acquire) {
+    if CANCEL.load(Ordering::Acquire) {
         let _ = app.emit("transcription-cancelled", ());
         return Ok(());
     }

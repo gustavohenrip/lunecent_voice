@@ -64,7 +64,6 @@ pub struct AppState {
     pub recording: AtomicBool,
     pub busy: AtomicBool,
     pub sidecar_ready: AtomicBool,
-    pub cancel: Arc<AtomicBool>,
     pub downloading: Mutex<std::collections::HashSet<String>>,
 }
 
@@ -198,7 +197,7 @@ impl AppState {
         translate: bool,
     ) -> AppResult<(String, bool)> {
         let guard = loop {
-            if self.cancel.load(Ordering::Acquire) {
+            if crate::pipeline::CANCEL.load(Ordering::Acquire) {
                 return Ok((String::new(), false));
             }
             if let Some(guard) = self
@@ -218,14 +217,7 @@ impl AppState {
         let cap = if engine.on_gpu { 4 } else { 6 };
         let threads = (logical / 2).max(1).min(cap) as i32;
         let prompt = self.vocabulary_prompt();
-        let text = engine.transcribe(
-            samples,
-            language,
-            threads,
-            prompt.as_deref(),
-            translate,
-            self.cancel.clone(),
-        )?;
+        let text = engine.transcribe(samples, language, threads, prompt.as_deref(), translate)?;
         Ok((text, engine.on_gpu))
     }
 
