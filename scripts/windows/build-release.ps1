@@ -22,6 +22,9 @@ try {
     if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
         throw "cargo not found. Install Rust (https://rustup.rs)."
     }
+    if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
+        throw "cmake not found. Install CMake (winget install Kitware.CMake) for whisper.cpp."
+    }
     if ($Target -eq "gpu" -and -not $env:CUDA_PATH) {
         throw "CUDA Toolkit not found. Install CUDA 12.8+ for the GPU build, or run with -Target cpu."
     }

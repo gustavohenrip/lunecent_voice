@@ -106,11 +106,17 @@
   });
 
   async function reload() {
-    try {
-      settings = await api.getSettings();
-      fillerText = settings.filler_words.join("\n");
-      vocabText = settings.vocabulary.join("\n");
-    } catch (_) {}
+    for (let attempt = 0; attempt < 60; attempt++) {
+      try {
+        const loaded = await api.getSettings();
+        settings = loaded;
+        fillerText = loaded.filler_words.join("\n");
+        vocabText = loaded.vocabulary.join("\n");
+        break;
+      } catch (_) {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    }
     api.listAudioDevices().then((d) => (devices = d)).catch(() => {});
     refreshModels();
     refreshLlamaStatus();
