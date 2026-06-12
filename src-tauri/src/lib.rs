@@ -39,6 +39,7 @@ use tauri_plugin_autostart::MacosLauncher;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_tracing();
+    whisper_rs::install_logging_hooks();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
@@ -343,13 +344,14 @@ fn init_tracing() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     match log_file() {
-        Some(file) => {
+        Some((file, path)) => {
             let _ = tracing_subscriber::fmt()
                 .with_env_filter(filter)
                 .with_target(false)
                 .with_ansi(false)
                 .with_writer(std::sync::Mutex::new(file))
                 .try_init();
+            tracing::info!("logging to {}", path.display());
         }
         None => {
             let _ = tracing_subscriber::fmt()
@@ -360,12 +362,30 @@ fn init_tracing() {
     }
 }
 
-fn log_file() -> Option<std::fs::File> {
-    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })?;
-    let dir = PathBuf::from(home)
-        .join("Documents")
-        .join("Lunecent Voice")
-        .join("logs");
-    std::fs::create_dir_all(&dir).ok()?;
-    std::fs::File::create(dir.join("lunecent.log")).ok()
+fn log_file() -> Option<(std::fs::File, PathBuf)> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(home) = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }) {
+        let home = PathBuf::from(home);
+        if let Some(onedrive) = std::env::var_os("OneDrive") {
+            let onedrive = PathBuf::from(onedrive);
+            candidates.push(onedrive.join("Documents"));
+            candidates.push(onedrive.join("Documentos"));
+        }
+        candidates.push(home.join("Documents"));
+    }
+    candidates.push(std::env::temp_dir());
+    for base in candidates {
+        if !base.exists() {
+            continue;
+        }
+        let dir = base.join("Lunecent Voice").join("logs");
+        if std::fs::create_dir_all(&dir).is_err() {
+            continue;
+        }
+        let path = dir.join("lunecent.log");
+        if let Ok(file) = std::fs::File::create(&path) {
+            return Some((file, path));
+        }
+    }
+    None
 }

@@ -49,11 +49,6 @@ if ($null -ne $cudaVer) {
 
 if (Test-Path $llvmBin) { $env:LIBCLANG_PATH = $llvmBin }
 
-if (-not $env:GGML_NATIVE) { $env:GGML_NATIVE = 'OFF' }
-if (-not $env:GGML_AVX2) { $env:GGML_AVX2 = 'ON' }
-if (-not $env:GGML_FMA) { $env:GGML_FMA = 'ON' }
-if (-not $env:GGML_F16C) { $env:GGML_F16C = 'ON' }
-
 $existing = $env:PATH -split ';'
 foreach ($p in $paths) {
     if ((Test-Path $p) -and ($existing -notcontains $p)) {

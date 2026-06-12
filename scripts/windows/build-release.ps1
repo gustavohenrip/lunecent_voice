@@ -51,6 +51,13 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "tauri build (gpu) failed ($LASTEXITCODE)." }
     } else {
         Write-Host "Compiling CPU-only release (this takes a while)..." -ForegroundColor Cyan
+        $env:CFLAGS = "/arch:AVX2"
+        $env:CXXFLAGS = "/arch:AVX2"
+        Get-ChildItem (Join-Path $root "src-tauri\target\release\build") -Directory -Filter "whisper-rs-sys-*" -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                Write-Host "Purging cached whisper.cpp build: $($_.Name)" -ForegroundColor Cyan
+                Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            }
         npx tauri build --config src-tauri/tauri.cpu.conf.json -- --no-default-features --features vad
         if ($LASTEXITCODE -ne 0) { throw "tauri build (cpu) failed ($LASTEXITCODE)." }
     }

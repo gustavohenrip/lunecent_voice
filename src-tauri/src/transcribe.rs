@@ -11,6 +11,10 @@ pub struct TranscribeEngine {
 
 impl TranscribeEngine {
     pub fn load(model_path: &Path, prefer_gpu: bool) -> AppResult<TranscribeEngine> {
+        static SYSINFO_ONCE: std::sync::Once = std::sync::Once::new();
+        SYSINFO_ONCE.call_once(|| {
+            tracing::info!("whisper system_info: {}", whisper_rs::print_system_info());
+        });
         if !model_path.exists() {
             return Err(AppError::Model(format!(
                 "whisper model not found: {}",
