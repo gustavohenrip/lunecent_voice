@@ -48,7 +48,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "tauri build (gpu) failed ($LASTEXITCODE)." }
     } else {
         Write-Host "Compiling CPU-only release (this takes a while)..." -ForegroundColor Cyan
-        npx tauri build --no-default-features --features vad --config src-tauri/tauri.cpu.conf.json
+        npx tauri build --config src-tauri/tauri.cpu.conf.json -- --no-default-features --features vad
         if ($LASTEXITCODE -ne 0) { throw "tauri build (cpu) failed ($LASTEXITCODE)." }
     }
 
