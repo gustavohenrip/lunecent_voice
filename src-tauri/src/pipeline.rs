@@ -278,18 +278,17 @@ async fn run_pipeline(
         && !state.sidecar_ready.load(Ordering::Acquire)
         && sidecar_present
     {
-        tracing::info!("waiting for local AI server to warm up before cleanup");
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        tracing::info!("waiting for local AI server to finish warming up before cleanup");
         loop {
             if state.sidecar_ready.load(Ordering::Acquire) {
+                break;
+            }
+            if state.sidecar_settled.load(Ordering::Acquire) {
                 break;
             }
             if CANCEL.load(Ordering::Acquire) {
                 let _ = app.emit("transcription-cancelled", ());
                 return Ok(());
-            }
-            if std::time::Instant::now() >= deadline {
-                break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         }

@@ -86,6 +86,7 @@
   );
 
   const visibleModels = $derived(models.filter((m) => m.info.kind === modelTab));
+  const installedLlm = $derived(models.filter((m) => m.info.kind === "llm" && m.present));
   const customWhisper = $derived(
     models.filter((m) => m.info.kind === "whisper" && m.info.id.startsWith("custom-")),
   );
@@ -812,8 +813,11 @@
                   <span class="group-head">Active model</span>
                   <div class="field">
                     <label for="lm">Local model</label>
-                    <select id="lm" bind:value={settings.llm_local_model} disabled={settings.llm_backend !== "local"}>
-                      {#each models.filter((m) => m.info.kind === "llm") as m}
+                    <select id="lm" bind:value={settings.llm_local_model} disabled={settings.llm_backend !== "local" || installedLlm.length === 0}>
+                      {#if installedLlm.length === 0}
+                        <option value={settings.llm_local_model}>No model installed — download one below</option>
+                      {/if}
+                      {#each installedLlm as m}
                         <option value={m.info.filename}>{m.info.label}</option>
                       {/each}
                     </select>
@@ -823,6 +827,8 @@
                   </div>
                   {#if settings.llm_backend !== "local"}
                     <p class="hint">Used when the AI Correction backend is set to Local.</p>
+                  {:else if installedLlm.length === 0}
+                    <p class="hint">No AI model installed yet. Download one from the list below to enable AI Correction.</p>
                   {/if}
                 </div>
 

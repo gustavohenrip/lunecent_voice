@@ -152,6 +152,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         recording: AtomicBool::new(false),
         busy: AtomicBool::new(false),
         sidecar_ready: AtomicBool::new(false),
+        sidecar_settled: AtomicBool::new(false),
         downloading: Mutex::new(std::collections::HashSet::new()),
     });
 

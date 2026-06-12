@@ -24,23 +24,27 @@ pub fn extract_port(endpoint: &str) -> Option<u16> {
 pub async fn restart_sidecar(state: &SharedState) {
     state.stop_sidecar();
     state.sidecar_ready.store(false, Ordering::Release);
+    state.sidecar_settled.store(false, Ordering::Release);
 
     let settings = state.settings_snapshot();
     if (!settings.llm_enabled && !settings.translation_enabled)
         || settings.llm_backend != LlmBackend::Local
     {
+        state.sidecar_settled.store(true, Ordering::Release);
         return;
     }
 
     let exe = state.sidecar_binary();
     if !exe.exists() {
         tracing::warn!("llama-server binary not found at {}", exe.display());
+        state.sidecar_settled.store(true, Ordering::Release);
         return;
     }
 
     let model = models::model_path(&state.models_dir, &settings.llm_local_model);
     if !model.exists() {
         tracing::warn!("llm model not found at {}", model.display());
+        state.sidecar_settled.store(true, Ordering::Release);
         return;
     }
 
@@ -60,7 +64,7 @@ pub async fn restart_sidecar(state: &SharedState) {
         Ok(child) => {
             *state.sidecar.lock() = Some(child);
             let ready =
-                sidecar::wait_until_ready(state.llm.http(), port, Duration::from_secs(90)).await;
+                sidecar::wait_until_ready(state.llm.http(), port, Duration::from_secs(180)).await;
             state.sidecar_ready.store(ready, Ordering::Release);
             if ready {
                 tracing::info!("llama-server ready on port {port}");
@@ -70,6 +74,7 @@ pub async fn restart_sidecar(state: &SharedState) {
         }
         Err(err) => tracing::warn!("could not start llama-server: {err}"),
     }
+    state.sidecar_settled.store(true, Ordering::Release);
 }
 
 pub fn bootstrap(app: &AppHandle, state: &SharedState) {

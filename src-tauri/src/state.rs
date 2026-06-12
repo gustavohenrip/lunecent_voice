@@ -64,6 +64,7 @@ pub struct AppState {
     pub recording: AtomicBool,
     pub busy: AtomicBool,
     pub sidecar_ready: AtomicBool,
+    pub sidecar_settled: AtomicBool,
     pub downloading: Mutex<std::collections::HashSet<String>>,
 }
 
