@@ -2,217 +2,172 @@
   <img src=".github/assets/banner.png" alt="Lunecent Voice" width="100%">
 </p>
 
-Hold a hotkey, talk, release. Your speech is transcribed locally and pasted into
-whatever window has focus. Runs fully offline. Works on **Windows** and **macOS**
-(Apple Silicon).
+<p align="center">
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&pause=1000&color=B3C499&center=true&vCenter=true&width=620&height=58&lines=Hold+a+hotkey.+Talk.+Release.;Local+speech-to-text%2C+fully+offline.;Optional+AI+cleanup+%26+translation." alt="Hold a hotkey. Talk. Release.">
+</p>
 
-Transcription is done by whisper.cpp (`large-v3-turbo` by default). There is an
-optional local LLM pass (Gemma via llama.cpp) that rewrites the raw transcript, but
-it is off by default and you don't need it. The plain Whisper output is already
-accurate.
+<p align="center">
+  <img src="https://img.shields.io/badge/Windows-NVIDIA%20%7C%20CPU-4f5d3b?style=flat-square&logo=windows&logoColor=white" alt="Windows">
+  <img src="https://img.shields.io/badge/macOS-Apple%20Silicon-4f5d3b?style=flat-square&logo=apple&logoColor=white" alt="macOS">
+  <img src="https://img.shields.io/badge/Tauri%202-Svelte%205%20%2B%20Rust-b3c499?style=flat-square&logo=tauri&logoColor=white" alt="Tauri 2">
+  <img src="https://img.shields.io/badge/offline-first-e8a384?style=flat-square" alt="Offline first">
+  <img src="https://img.shields.io/badge/license-MIT-cbc9c0?style=flat-square" alt="MIT">
+</p>
 
-Built with Tauri 2 (Rust) and Svelte 5.
+Press a hotkey, talk, release. Your speech is transcribed **locally** and pasted into
+whatever window has focus. Fully offline. The network is only touched to download
+models, or if you point the AI at a remote endpoint.
+
+## Quick start
+
+1. Grab the latest build from **Releases** — Windows (NVIDIA or CPU) or macOS `.dmg`
+   (Apple Silicon).
+2. Open it, go to **Settings → Models**, download a Whisper model.
+3. Hold `Ctrl+Shift+Space`, talk, release. Text lands at your cursor.
+
+That's it. Everything else below is optional.
+
+## Features
+
+| | |
+|---|---|
+| 🎙️ **Offline STT** | whisper.cpp `large-v3-turbo` by default. GPU first, automatic CPU fallback. |
+| ⚡ **Instant capture** | Mic stays pre-warmed, so recording starts the moment you press. |
+| ⌨️ **Global hotkey** | Fires even when unfocused. Hold-to-talk or toggle. Bind mouse buttons too. |
+| 🔊 **Confirmation beeps** | Soft tones on record start and stop, so you never miss the window. |
+| ✨ **AI cleanup** | Optional local LLM rewrites the raw transcript: grammar, fillers, casing. Off by default. |
+| 🌐 **AI translation** | Speak one language, paste another. Pick input and output languages. |
+| 🧩 **Any model** | Paste a Hugging Face link to add Whisper or LLM models. One-click automatic llama-server setup. Delete with one click. |
+| 📖 **Vocabulary** | Bias recognition toward your jargon, names and brands. Plus dictionary replacements and filler stripping. |
+| 🗂️ **History** | Every transcript saved to a local SQLite database with full-text search and stats. |
+| 🔌 **Bring your own backend** | Local llama-server, OpenAI-compatible, Anthropic, or Ollama. |
 
 ## How it works
 
 ```
 mic -> cpal capture -> Silero VAD (trim silence) -> whisper.cpp (GPU or CPU)
-    -> filler/dictionary cleanup -> optional LLM rewrite -> clipboard + paste
+    -> filler/dictionary cleanup -> optional LLM rewrite/translate -> clipboard + paste
 ```
 
-- **Windows:** global hotkey via low-level `WH_KEYBOARD_LL` + `WH_MOUSE_LL` hooks,
-  so it fires even when the app is not focused. You can bind mouse buttons (middle,
-  back, forward) on top of Ctrl/Shift/Alt/Win.
-- **macOS:** global hotkey via `CGEventTap` (runs on the main thread, as required
-  since macOS 26). Same modifier + key bindings as Windows.
-- The mic stream is kept open and pre-warmed, so recording starts instantly.
-- Whisper tries the GPU first and falls back to CPU automatically. A CPU tag shows
-  on the widget when that happens.
-- Text is delivered by writing to the clipboard and sending the paste shortcut
-  (`Ctrl+V` on Windows, `Cmd+V` on macOS), then restoring your previous clipboard.
-  Elevated windows on Windows block simulated input — in that case the text is left
-  on the clipboard for you to paste manually.
-- Everything stays on the machine. The network is only touched to download models
-  on first run, or if you point the LLM at a remote endpoint.
+- **Windows:** global hotkey via low-level `WH_KEYBOARD_LL` + `WH_MOUSE_LL` hooks.
+  Bind mouse buttons (middle, back, forward) on top of Ctrl/Shift/Alt/Win.
+- **macOS:** global hotkey via `CGEventTap` on a dedicated run-loop thread.
+- Text is delivered by writing the clipboard and sending paste (`Ctrl+V` / `Cmd+V`),
+  then restoring your previous clipboard. Elevated Windows apps block simulated input;
+  there the text is left on the clipboard to paste by hand.
+- The AI pass treats the transcript as untrusted data: it is fenced and the prompt is
+  hardened, so spoken text cannot hijack the model into answering instead of correcting.
 
----
+## Install
 
-## Requirements
+| Platform | Build |
+|---|---|
+| **Windows + NVIDIA** | GPU build. ~4 GB VRAM for turbo, +3 GB if you enable LLM cleanup. RTX 50-series needs a CUDA 12.8+ driver. |
+| **Windows, no GPU** | CPU build, runs anywhere. `medium` is the practical model; turbo works but is heavy. |
+| **macOS** | Apple Silicon (M1+), macOS 13+. Metal GPU by default. |
 
-### Windows — GPU build (NVIDIA)
+All builds need 8 GB RAM and ~5 GB free disk (turbo 1.6 GB, optional LLM 2.4 GB) plus a microphone.
 
-- Windows 10 64-bit (1809+) or Windows 11
-- NVIDIA GPU with a current driver. ~4 GB VRAM for `large-v3-turbo`, 6 GB+ for
-  `large-v3`, plus ~3 GB more if you enable Gemma cleanup. RTX 50-series (Blackwell)
-  needs a driver that ships the CUDA 12.8+ runtime.
-- 8 GB system RAM
-- ~5 GB free disk (Whisper turbo is 1.6 GB; optional Gemma model is 2.4 GB)
-- A microphone
+## Build from source
 
-### Windows — CPU build
+<details>
+<summary><b>Windows</b></summary>
 
-- Windows 10/11 64-bit, any x64 CPU. No GPU required.
-- 8 GB RAM minimum, 16 GB recommended (model sits in RAM).
-- Transcription is slower than GPU. `medium` is the practical model choice;
-  `large-v3-turbo` works but is heavy on CPU.
-
-### macOS
-
-- Apple Silicon (M1 or later). Metal GPU acceleration is used by default.
-- macOS 13 Ventura or newer.
-- 8 GB RAM minimum. ~5 GB free disk for models.
-- A microphone. macOS will prompt for microphone permission on first launch.
-
-### To build from source (all platforms)
-
-Add: Rust (rustup), Node 18+, CMake.
-
-- **Windows:** Visual Studio 2022 with the "Desktop development with C++" workload,
-  LLVM (for libclang). GPU build also needs CUDA Toolkit 12.8+ (13.x for RTX 50-series).
-  Budget ~10 GB for toolchains and build output.
-- **macOS:** Xcode Command Line Tools (or full Xcode), Homebrew. The setup script
-  installs everything else automatically.
-
----
-
-## Install (end user)
-
-1. Download the latest release from the Releases page.
-   - Windows: choose the GPU build (NVIDIA, fast) or the CPU build (runs anywhere,
-     slower).
-   - macOS: download the `.dmg` (Apple Silicon only).
-2. Run the installer / open the `.dmg` and drag the app to Applications.
-3. Open Settings → Models and download a Whisper model.
-4. Hold the hotkey, talk, release. The text lands wherever your cursor is.
-   - Windows default: `Ctrl+Shift+Space`
-   - macOS default: `Ctrl+Shift+Space`
-
-Hotkeys, model, language, dictionary and the rest are in Settings.
-
----
-
-## Build from source — Windows
-
-Install the toolchain once:
+Install the toolchain once (also needs Visual Studio 2022 with the Desktop C++ workload):
 
 ```powershell
 winget install Rustlang.Rustup Kitware.CMake LLVM.LLVM
 winget install Nvidia.CUDA   # GPU build only
 ```
 
-You also need Visual Studio 2022 with the Desktop C++ workload.
-
-Then from the project root:
+Build from the project root:
 
 ```powershell
-# GPU build — produces an NSIS .exe and .msi installer
-scripts\windows\build.bat
-
-# CPU build — runs on any Windows machine, no GPU needed
-scripts\windows\build-cpu.bat
+scripts\windows\build.bat        # GPU — NSIS .exe + .msi
+scripts\windows\build-cpu.bat    # CPU — runs on any Windows machine
 ```
 
-Both scripts wrap the same steps:
+Both wrap the same steps:
 
 ```powershell
-. .\scripts\windows\build-env.ps1          # sets CUDA_PATH, LIBCLANG_PATH, PATH
+. .\scripts\windows\build-env.ps1   # sets CUDA_PATH, LIBCLANG_PATH, PATH
 npm install
-npm run fetch-deps                          # GPU: llama-server + CUDA DLLs + VAD model
-npx tauri build --features cuda             # GPU
-npx tauri build --no-default-features --features vad --config src-tauri/tauri.cpu.conf.json  # CPU
+npm run fetch-deps                  # GPU: llama-server + CUDA DLLs + VAD model
+npx tauri build --features cuda     # GPU
 ```
 
-Installers land in `src-tauri/target/release/bundle/` (NSIS `.exe` and `.msi`).
-The standalone executable is `src-tauri/target/release/lunecent-voice.exe`.
+Installers land in `src-tauri/target/release/bundle/`.
 
-## Build from source — macOS
+</details>
 
-The setup script installs all missing dependencies (Homebrew, Rust, Node, CMake)
-automatically. You only need to run it once.
+<details>
+<summary><b>macOS</b></summary>
+
+The setup script installs every missing dependency (Homebrew, Rust, Node, CMake). Run it once.
 
 ```bash
-# Check and install dependencies
-./scripts/macos/mac-setup.sh
-
-# Build the .dmg installer (Apple Silicon, Metal GPU)
-./scripts/macos/build-dmg.sh
+./scripts/macos/mac-setup.sh     # check + install deps
+./scripts/macos/build-dmg.sh     # build the .dmg (Apple Silicon, Metal)
 ```
 
 The `.dmg` lands in `src-tauri/target/release/bundle/dmg/`.
 
----
+</details>
 
-## Run from source (dev mode)
-
-### Windows
+<details>
+<summary><b>Run in dev mode</b></summary>
 
 ```powershell
-scripts\windows\run-dev.bat
+scripts\windows\run-dev.bat      # Windows
 ```
-
-Kills any running instance, sets up the build environment, and launches `tauri dev`
-(Vite on port 1420 + Rust app with hot reload). First run compiles the Rust side,
-which takes a few minutes.
-
-### macOS
 
 ```bash
-# Metal GPU (default)
-./scripts/macos/run-dev.sh
-
-# CPU only
-./scripts/macos/run-dev.sh cpu
+./scripts/macos/run-dev.sh       # macOS (Metal)
+./scripts/macos/run-dev.sh cpu   # macOS (CPU)
 ```
 
-Same behavior: kills any running instance and launches `tauri dev` with hot reload.
+Each kills any running instance and launches `tauri dev` with hot reload. The first
+run compiles the Rust side and takes a few minutes.
 
----
+</details>
 
-## Configuration
+## Where your data lives
 
-Settings live in:
+Everything is kept in one folder under your Documents:
 
-- **Windows:** `%APPDATA%\com.lunecent.voice\settings.json`
-- **macOS:** `~/Library/Application Support/com.lunecent.voice/settings.json`
+- **Windows:** `Documents\Lunecent Voice\`
+- **macOS:** `~/Documents/Lunecent Voice/`
 
-Settings are editable from the Settings window. Models and the history database
-live in the same folder.
+```
+Lunecent Voice/
+  config/    settings.json, custom_models.json
+  data/      history.db, models/, bin/ (llama-server)
+```
 
-Notable keys: `whisper_model`, `language`, `prefer_gpu`, `hotkey_ptt`,
-`hotkey_toggle`, `vad_enabled`, `filler_removal`, `dictionary`, and the `llm_*`
-group for the optional cleanup pass.
-
-The LLM cleanup is off unless you enable it in Settings and a llama-server binary
-is present (the Windows GPU `fetch-deps` pulls one). You can also point `llm_backend`
-at an OpenAI-compatible, Anthropic, or Ollama endpoint instead of the local server.
-
----
+All settings are editable from the app. Everything stays on the machine.
 
 ## Source layout
 
 ```
 src-tauri/src/
-  audio.rs          pre-warmed cpal capture, downmix + resample to 16 kHz, mic level
+  audio.rs          pre-warmed cpal capture, downmix + resample to 16 kHz
   vad.rs            Silero v5 VAD via onnxruntime, energy-gated fallback
-  transcribe.rs     whisper-rs, GPU then CPU
-  inputhook.rs      WH_KEYBOARD_LL + WH_MOUSE_LL global hotkey (Windows)
-  inputhook_mac.rs  CGEventTap global hotkey (macOS)
-  hotkey.rs         binds the hook from settings
-  dictionary.rs     filler stripping (non-words only) + exact replacements
-  cleanup.rs        optional LLM client (OpenAI-compatible + Anthropic), timeout
-  sidecar.rs        llama-server process lifecycle (Job Object, killed on exit)
-  services.rs       bootstrap, sidecar restart, autostart
-  inject.rs         clipboard save/restore + simulated Ctrl+V / Cmd+V
-  history.rs        SQLite + FTS5, stats
+  transcribe.rs     whisper-rs, GPU then CPU, vocabulary biasing
+  inputhook*.rs     global hotkey (Windows hooks / macOS CGEventTap)
+  dictionary.rs     filler stripping + exact replacements
+  cleanup.rs        LLM correct/translate client, prompt-injection hardened
+  sound.rs          confirmation beeps via cpal output
+  hf.rs             Hugging Face link parsing + file listing
+  custom_models.rs  user model registry
+  llama_setup.rs    one-click llama-server download + configure
+  sidecar.rs        llama-server lifecycle (Job Object, killed on exit)
   models.rs         model registry + downloader with progress
   pipeline.rs       capture -> transcribe -> clean -> inject -> history
-  state.rs          shared state
+  history.rs        SQLite + FTS5, stats
   commands.rs       Tauri command surface
-  tray.rs           system tray
-  lib.rs            window, tray, DLL path, level emitter setup
 src/                Svelte 5 frontend: widget, settings, history windows
-scripts/windows/    build-env, fetch-deps, build.bat / build-cpu.bat / run-dev.bat (Windows)
-scripts/macos/      mac-setup, build-dmg, run-dev (macOS)
+scripts/windows/    build-env, fetch-deps, build / build-cpu / run-dev
+scripts/macos/      mac-setup, build-dmg, run-dev
 ```
 
 ## License
