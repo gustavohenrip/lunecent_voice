@@ -2,6 +2,8 @@ export type RecordMode = "push_to_talk" | "toggle";
 
 export type LlmBackend = "local" | "open_ai_compatible" | "anthropic" | "ollama";
 
+export type TranscriptionBackend = "local" | "groq";
+
 export type StatusKind =
   | "idle"
   | "recording"
@@ -15,6 +17,9 @@ export interface Settings {
   record_mode: RecordMode;
   language: string;
   whisper_model: string;
+  transcription_backend: TranscriptionBackend;
+  groq_api_key: string;
+  groq_model: string;
   audio_device: string | null;
   vad_enabled: boolean;
   vad_threshold: number;
@@ -72,6 +77,7 @@ export interface HistoryEntry {
   language: string;
   on_gpu: boolean;
   llm_used: boolean;
+  cloud: boolean;
 }
 
 export interface Stats {

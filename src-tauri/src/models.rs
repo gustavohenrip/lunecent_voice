@@ -105,6 +105,38 @@ pub fn registry() -> Vec<ModelInfo> {
             url: "https://huggingface.co/bartowski/google_gemma-3-4b-it-GGUF/resolve/main/google_gemma-3-4b-it-Q4_K_M.gguf".to_string(),
             size_bytes: 2_489_894_016,
         },
+        ModelInfo {
+            id: "qwen2.5-3b-instruct".to_string(),
+            label: "Qwen2.5 3B Instruct Q4_K_M (light, great)".to_string(),
+            kind: ModelKind::Llm,
+            filename: "Qwen2.5-3B-Instruct-Q4_K_M.gguf".to_string(),
+            url: "https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q4_K_M.gguf".to_string(),
+            size_bytes: 1_929_903_264,
+        },
+        ModelInfo {
+            id: "qwen2.5-1.5b-instruct".to_string(),
+            label: "Qwen2.5 1.5B Instruct Q4_K_M (very light)".to_string(),
+            kind: ModelKind::Llm,
+            filename: "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf".to_string(),
+            url: "https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf".to_string(),
+            size_bytes: 986_048_768,
+        },
+        ModelInfo {
+            id: "llama-3.2-3b-instruct".to_string(),
+            label: "Llama 3.2 3B Instruct Q4_K_M (light, strong)".to_string(),
+            kind: ModelKind::Llm,
+            filename: "Llama-3.2-3B-Instruct-Q4_K_M.gguf".to_string(),
+            url: "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf".to_string(),
+            size_bytes: 2_019_377_696,
+        },
+        ModelInfo {
+            id: "llama-3.2-1b-instruct".to_string(),
+            label: "Llama 3.2 1B Instruct Q4_K_M (ultra light)".to_string(),
+            kind: ModelKind::Llm,
+            filename: "Llama-3.2-1B-Instruct-Q4_K_M.gguf".to_string(),
+            url: "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf".to_string(),
+            size_bytes: 807_694_464,
+        },
     ]
 }
 

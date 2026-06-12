@@ -3,6 +3,7 @@
   import { fly } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
   import { api, on, getCurrentWindow, type UnlistenFn } from "../lib/ipc";
+  import { openUrl } from "@tauri-apps/plugin-opener";
   import type {
     Settings,
     ModelStatus,
@@ -36,6 +37,9 @@
   let themeMode = $state<ThemeMode>(getTheme());
   let hw = $state<HardwareInfo | null>(null);
   let runtimeStatus = $state<StatusPayload | null>(null);
+  let showGroqKey = $state(false);
+  let groqKeyCopied = $state(false);
+  let groqCopyTimer: ReturnType<typeof setTimeout> | undefined;
 
   const noAccel = $derived(
     !hw?.build_gpu || (!!runtimeStatus?.engine_ready && !!runtimeStatus?.cpu_mode),
@@ -134,6 +138,7 @@
     })();
     return () => {
       clearTimeout(savedTimer);
+      clearTimeout(groqCopyTimer);
       unlisten.forEach((u) => u());
     };
   });
@@ -445,6 +450,23 @@
     getCurrentWindow().minimize().catch(() => {});
   }
 
+  function openGroqKeys() {
+    openUrl("https://console.groq.com/keys").catch(() => {});
+  }
+
+  function copyGroqKey() {
+    const key = settings?.groq_api_key ?? "";
+    if (!key) return;
+    navigator.clipboard
+      .writeText(key)
+      .then(() => {
+        groqKeyCopied = true;
+        clearTimeout(groqCopyTimer);
+        groqCopyTimer = setTimeout(() => (groqKeyCopied = false), 1500);
+      })
+      .catch(() => {});
+  }
+
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: "general", label: "General", icon: "sliders-horizontal" },
     { id: "audio", label: "Audio", icon: "waveform" },
@@ -659,6 +681,58 @@
 
               {#if modelTab === "whisper"}
                 <div class="group">
+                  <span class="group-head">Transcription engine</span>
+                  <div class="field">
+                    <label for="tbk" class="cap with-info">
+                      How transcription runs
+                      <span class="info-pop">
+                        <Icon name="info" size={15} />
+                        <span class="tip">
+                          <strong>On this computer</strong> runs Whisper fully offline and private. Nothing leaves your machine.
+                          <br /><br />
+                          <strong>Groq Cloud</strong> uploads your audio to Groq's servers and transcribes it with the Whisper model you pick below (large-v3-turbo for speed or large-v3 for maximum accuracy). Fast and very accurate, but it needs an internet connection and is not offline. Create a free API key at console.groq.com/keys. The free tier is generous for personal dictation but has daily limits that reset every 24h; if you reach them, transcription returns an error until they reset. Check your live limits at console.groq.com/settings/limits.
+                        </span>
+                      </span>
+                    </label>
+                    <select id="tbk" bind:value={settings.transcription_backend}>
+                      <option value="local">On this computer (offline, private)</option>
+                      <option value="groq">Groq Cloud (free API, very fast)</option>
+                    </select>
+                  </div>
+                  {#if settings.transcription_backend === "groq"}
+                    <div class="field">
+                      <label for="gk">Groq API key</label>
+                      <div class="hf-add">
+                        <input id="gk" type={showGroqKey ? "text" : "password"} placeholder="gsk_..." bind:value={settings.groq_api_key} />
+                        <button class="btn" title={showGroqKey ? "Hide key" : "Show key"} aria-label="Toggle key visibility" onclick={() => (showGroqKey = !showGroqKey)}>
+                          <Icon name={showGroqKey ? "eye-slash" : "eye"} size={15} />
+                        </button>
+                        <button class="btn" title="Copy key" aria-label="Copy key" onclick={copyGroqKey} disabled={!settings.groq_api_key}>
+                          <Icon name={groqKeyCopied ? "check-circle" : "copy"} size={15} />
+                        </button>
+                        <button class="btn" onclick={openGroqKeys}>
+                          <Icon name="arrow-right" size={15} />
+                          Get key
+                        </button>
+                      </div>
+                    </div>
+                    <div class="field">
+                      <label for="gm">Groq model</label>
+                      <select id="gm" bind:value={settings.groq_model}>
+                        <option value="whisper-large-v3-turbo">large-v3-turbo (faster)</option>
+                        <option value="whisper-large-v3">large-v3 (maximum accuracy)</option>
+                      </select>
+                    </div>
+                    {#if settings.groq_model === "whisper-large-v3-turbo" && settings.translation_enabled && settings.translation_target.trim().toLowerCase() === "english"}
+                      <div class="cue warn">
+                        <Icon name="warning-circle" size={16} />
+                        <span>Translation to English uses large-v3 automatically — Groq's turbo model does not support translation.</span>
+                      </div>
+                    {/if}
+                    <p class="hint">Get a free key at console.groq.com/keys. Your audio is sent to Groq's servers, so this mode is not offline. The local Whisper model below is not used while Groq is selected.</p>
+                  {/if}
+                </div>
+                <div class="group">
                   <span class="group-head">Active model</span>
                   <div class="field">
                     <label for="wm">Whisper model</label>
@@ -726,7 +800,7 @@
                   <div class="field">
                     <label for="bk">Backend</label>
                     <select id="bk" bind:value={settings.llm_backend}>
-                      <option value="local">Local (Gemma via llama-server)</option>
+                      <option value="local">Local (llama-server)</option>
                       <option value="open_ai_compatible">OpenAI-compatible</option>
                       <option value="anthropic">Anthropic</option>
                       <option value="ollama">Ollama</option>
@@ -1158,6 +1232,55 @@
     color: var(--terra-text);
     font-weight: 600;
     margin-left: auto;
+  }
+
+  .with-info {
+    align-items: center;
+  }
+
+  .info-pop {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    color: var(--ink-faint);
+    cursor: help;
+  }
+
+  .info-pop:hover {
+    color: var(--terra);
+  }
+
+  .info-pop .tip {
+    position: absolute;
+    left: 0;
+    top: calc(100% + 8px);
+    z-index: 20;
+    width: 320px;
+    padding: 12px 14px;
+    border-radius: var(--radius-sm);
+    background: var(--paper-raised);
+    border: 1px solid var(--line-strong);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+    color: var(--ink-soft);
+    font-size: 12.5px;
+    font-weight: 400;
+    line-height: 1.5;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-4px);
+    transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s;
+    pointer-events: none;
+  }
+
+  .info-pop:hover .tip {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+  }
+
+  .info-pop .tip strong {
+    color: var(--ink);
+    font-weight: 600;
   }
 
   .field select,

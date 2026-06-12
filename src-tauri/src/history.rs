@@ -14,6 +14,7 @@ pub struct HistoryEntry {
     pub language: String,
     pub on_gpu: bool,
     pub llm_used: bool,
+    pub cloud: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -26,6 +27,7 @@ pub struct NewEntry {
     pub language: String,
     pub on_gpu: bool,
     pub llm_used: bool,
+    pub cloud: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -59,7 +61,8 @@ fn migrate(conn: &Connection) -> AppResult<()> {
             final_text  TEXT NOT NULL,
             language    TEXT NOT NULL DEFAULT '',
             on_gpu      INTEGER NOT NULL DEFAULT 1,
-            llm_used    INTEGER NOT NULL DEFAULT 0
+            llm_used    INTEGER NOT NULL DEFAULT 0,
+            cloud       INTEGER NOT NULL DEFAULT 0
         );
         CREATE VIRTUAL TABLE IF NOT EXISTS recordings_fts USING fts5(
             raw_text, final_text,
@@ -82,13 +85,17 @@ fn migrate(conn: &Connection) -> AppResult<()> {
         "#,
     )
     .map_err(|e| AppError::Db(e.to_string()))?;
+    let _ = conn.execute(
+        "ALTER TABLE recordings ADD COLUMN cloud INTEGER NOT NULL DEFAULT 0",
+        [],
+    );
     Ok(())
 }
 
 pub fn insert(conn: &Connection, entry: &NewEntry) -> AppResult<i64> {
     conn.execute(
-        "INSERT INTO recordings (created_at, duration_ms, word_count, raw_text, final_text, language, on_gpu, llm_used)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO recordings (created_at, duration_ms, word_count, raw_text, final_text, language, on_gpu, llm_used, cloud)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             entry.created_at,
             entry.duration_ms,
@@ -98,6 +105,7 @@ pub fn insert(conn: &Connection, entry: &NewEntry) -> AppResult<i64> {
             entry.language,
             entry.on_gpu as i64,
             entry.llm_used as i64,
+            entry.cloud as i64,
         ],
     )
     .map_err(|e| AppError::Db(e.to_string()))?;
@@ -115,13 +123,14 @@ fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<HistoryEntry> {
         language: row.get(6)?,
         on_gpu: row.get::<_, i64>(7)? != 0,
         llm_used: row.get::<_, i64>(8)? != 0,
+        cloud: row.get::<_, i64>(9)? != 0,
     })
 }
 
 pub fn list(conn: &Connection, limit: i64, offset: i64) -> AppResult<Vec<HistoryEntry>> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, created_at, duration_ms, word_count, raw_text, final_text, language, on_gpu, llm_used
+            "SELECT id, created_at, duration_ms, word_count, raw_text, final_text, language, on_gpu, llm_used, cloud
              FROM recordings ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
         )
         .map_err(|e| AppError::Db(e.to_string()))?;
@@ -138,7 +147,7 @@ pub fn search(conn: &Connection, query: &str, limit: i64) -> AppResult<Vec<Histo
     }
     let mut stmt = conn
         .prepare(
-            "SELECT r.id, r.created_at, r.duration_ms, r.word_count, r.raw_text, r.final_text, r.language, r.on_gpu, r.llm_used
+            "SELECT r.id, r.created_at, r.duration_ms, r.word_count, r.raw_text, r.final_text, r.language, r.on_gpu, r.llm_used, r.cloud
              FROM recordings r
              JOIN recordings_fts f ON f.rowid = r.id
              WHERE recordings_fts MATCH ?1
@@ -174,7 +183,7 @@ fn build_match_query(query: &str) -> String {
 pub fn get(conn: &Connection, id: i64) -> AppResult<Option<HistoryEntry>> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, created_at, duration_ms, word_count, raw_text, final_text, language, on_gpu, llm_used
+            "SELECT id, created_at, duration_ms, word_count, raw_text, final_text, language, on_gpu, llm_used, cloud
              FROM recordings WHERE id = ?1",
         )
         .map_err(|e| AppError::Db(e.to_string()))?;

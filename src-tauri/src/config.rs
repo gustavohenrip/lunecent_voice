@@ -31,6 +31,19 @@ impl Default for LlmBackend {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TranscriptionBackend {
+    Local,
+    Groq,
+}
+
+impl Default for TranscriptionBackend {
+    fn default() -> Self {
+        TranscriptionBackend::Local
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -39,6 +52,9 @@ pub struct Settings {
     pub record_mode: RecordMode,
     pub language: String,
     pub whisper_model: String,
+    pub transcription_backend: TranscriptionBackend,
+    pub groq_api_key: String,
+    pub groq_model: String,
     pub audio_device: Option<String>,
     pub vad_enabled: bool,
     pub vad_threshold: f32,
@@ -73,6 +89,9 @@ impl Default for Settings {
             record_mode: RecordMode::PushToTalk,
             language: "auto".to_string(),
             whisper_model: "large-v3-turbo".to_string(),
+            transcription_backend: TranscriptionBackend::Local,
+            groq_api_key: String::new(),
+            groq_model: "whisper-large-v3-turbo".to_string(),
             audio_device: None,
             vad_enabled: true,
             vad_threshold: 0.5,

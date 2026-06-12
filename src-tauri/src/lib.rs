@@ -5,6 +5,7 @@ mod config;
 mod custom_models;
 mod dictionary;
 mod error;
+mod groq;
 mod hardware;
 mod hf;
 mod history;

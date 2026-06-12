@@ -1,6 +1,6 @@
 use crate::audio::AudioEngine;
 use crate::cleanup::LlmClient;
-use crate::config::Settings;
+use crate::config::{Settings, TranscriptionBackend};
 use crate::error::{AppError, AppResult};
 use crate::sidecar::Sidecar;
 use crate::transcribe::TranscribeEngine;
@@ -95,12 +95,19 @@ impl AppState {
 
     pub fn status_payload(&self) -> StatusPayload {
         let meta = self.engine_meta.read();
+        let settings = self.settings.read();
+        let groq_ready = matches!(settings.transcription_backend, TranscriptionBackend::Groq)
+            && !settings.groq_api_key.trim().is_empty();
         StatusPayload {
             status: *self.status.read(),
             recording: self.recording.load(Ordering::Acquire),
             cpu_mode: meta.ready && !meta.on_gpu,
-            engine_ready: meta.ready,
-            model: meta.loaded_model.clone(),
+            engine_ready: meta.ready || groq_ready,
+            model: if groq_ready {
+                "Groq Cloud".to_string()
+            } else {
+                meta.loaded_model.clone()
+            },
             audio_available: self.audio.is_available(),
             vad_active: self.vad.read().is_some(),
             error: meta.error.clone(),

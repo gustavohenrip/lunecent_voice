@@ -188,7 +188,13 @@
               <span>{fmtDuration(e.duration_ms)}</span>
               <span class="dot">·</span>
               <span title="Words per minute">{wpm(e)} WPM</span>
-              {#if e.on_gpu}<span class="tag gpu">GPU</span>{:else}<span class="tag cpu">CPU</span>{/if}
+              {#if e.cloud}
+                <span class="tag cloud">Cloud</span>
+              {:else if e.on_gpu}
+                <span class="tag gpu">GPU</span>
+              {:else}
+                <span class="tag cpu">CPU</span>
+              {/if}
               {#if e.llm_used}<span class="tag llm">AI</span>{/if}
             </div>
           </div>
@@ -419,6 +425,11 @@
   .tag.cpu {
     background: var(--paper-sunk);
     color: var(--ink-faint);
+  }
+
+  .tag.cloud {
+    background: var(--sky-soft);
+    color: var(--sky-text);
   }
 
   .tag.llm {
