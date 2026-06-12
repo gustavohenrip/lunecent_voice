@@ -8,6 +8,12 @@ use std::time::Duration;
 use std::ffi::c_void;
 
 #[cfg(target_os = "macos")]
+#[link(name = "ApplicationServices", kind = "framework")]
+extern "C" {
+    fn AXIsProcessTrusted() -> bool;
+}
+
+#[cfg(target_os = "macos")]
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     fn CGEventCreateKeyboardEvent(source: *mut c_void, keycode: u16, keydown: bool) -> *mut c_void;
@@ -68,6 +74,11 @@ fn send_paste() -> AppResult<()> {
     const V_KEYCODE: u16 = 9;
     const CMD_FLAG: u64 = 0x0010_0000;
     const HID_EVENT_TAP: u32 = 0;
+    if !unsafe { AXIsProcessTrusted() } {
+        return Err(AppError::Inject(
+            "macOS denied keyboard control (Accessibility not effective for this build)".to_string(),
+        ));
+    }
     unsafe {
         let down = CGEventCreateKeyboardEvent(std::ptr::null_mut(), V_KEYCODE, true);
         if down.is_null() {

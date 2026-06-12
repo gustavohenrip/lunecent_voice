@@ -18,8 +18,17 @@ type CFStringRef = *const c_void;
 type CGEventRef = *mut c_void;
 type CGEventTapProxy = *mut c_void;
 
+type CFDictionaryRef = *const c_void;
+
 type CGEventTapCallBack =
     extern "C" fn(CGEventTapProxy, u32, CGEventRef, *mut c_void) -> CGEventRef;
+
+#[link(name = "ApplicationServices", kind = "framework")]
+extern "C" {
+    fn AXIsProcessTrusted() -> bool;
+    fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> bool;
+    static kAXTrustedCheckOptionPrompt: CFStringRef;
+}
 
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
@@ -46,8 +55,19 @@ extern "C" {
     fn CFRunLoopGetCurrent() -> CFRunLoopRef;
     fn CFRunLoopAddSource(rl: CFRunLoopRef, source: CFRunLoopSourceRef, mode: CFStringRef);
     fn CFRunLoopRun();
+    fn CFDictionaryCreate(
+        allocator: CFAllocatorRef,
+        keys: *const *const c_void,
+        values: *const *const c_void,
+        num_values: isize,
+        key_callbacks: *const c_void,
+        value_callbacks: *const c_void,
+    ) -> CFDictionaryRef;
+    fn CFRelease(cf: *const c_void);
     #[allow(non_upper_case_globals)]
     static kCFRunLoopCommonModes: CFStringRef;
+    #[allow(non_upper_case_globals)]
+    static kCFBooleanTrue: *const c_void;
 }
 
 const KEY_DOWN: u32 = 10;
@@ -124,6 +144,7 @@ pub fn start(app: AppHandle) {
     std::thread::Builder::new()
         .name("lunecent-hotkey-grab".to_string())
         .spawn(move || {
+            let trusted = prompt_accessibility();
             let mut warned = false;
             let mut attempts: u32 = 0;
             loop {
@@ -133,15 +154,21 @@ pub fn start(app: AppHandle) {
                 attempts += 1;
                 if !warned {
                     warned = true;
-                    tracing::error!("global hotkey tap failed; needs Accessibility permission");
+                    let message = if trusted || unsafe { AXIsProcessTrusted() } {
+                        tracing::error!("hotkey tap denied despite Accessibility shown as granted; stale TCC entry");
+                        "macOS is blocking the global shortcut even though Accessibility looks enabled (stale permission from a previous build). In System Settings > Privacy & Security > Accessibility, remove Lunecent Voice with the minus button, add it again and turn it on."
+                    } else {
+                        tracing::error!("global hotkey tap failed; needs Accessibility permission");
+                        open_accessibility_settings();
+                        "Allow Lunecent Voice in System Settings > Privacy & Security > Accessibility. The global shortcut starts working as soon as you enable it."
+                    };
                     let _ = app.emit(
                         "pipeline-error",
                         serde_json::json!({
                             "stage": "hotkey",
-                            "message": "Allow Lunecent Voice in System Settings > Privacy & Security > Accessibility. The global shortcut starts working as soon as you enable it."
+                            "message": message
                         }),
                     );
-                    open_accessibility_settings();
                 } else {
                     tracing::debug!("hotkey tap retry {attempts} failed");
                 }
@@ -150,6 +177,26 @@ pub fn start(app: AppHandle) {
             }
         })
         .ok();
+}
+
+fn prompt_accessibility() -> bool {
+    unsafe {
+        let keys = [kAXTrustedCheckOptionPrompt as *const c_void];
+        let values = [kCFBooleanTrue];
+        let options = CFDictionaryCreate(
+            ptr::null_mut(),
+            keys.as_ptr(),
+            values.as_ptr(),
+            1,
+            ptr::null(),
+            ptr::null(),
+        );
+        let trusted = AXIsProcessTrustedWithOptions(options);
+        if !options.is_null() {
+            CFRelease(options);
+        }
+        trusted
+    }
 }
 
 fn run_event_tap() -> bool {
