@@ -138,7 +138,7 @@ pub fn start(app: AppHandle) {
                         "pipeline-error",
                         serde_json::json!({
                             "stage": "hotkey",
-                            "message": "Permita o Lunecent Voice em Ajustes do Sistema > Privacidade e Seguranca > Acessibilidade. O atalho global passa a funcionar assim que voce ativar."
+                            "message": "Allow Lunecent Voice in System Settings > Privacy & Security > Accessibility. The global shortcut starts working as soon as you enable it."
                         }),
                     );
                     open_accessibility_settings();

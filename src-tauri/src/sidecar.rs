@@ -49,6 +49,12 @@ impl Sidecar {
             .arg(threads().to_string())
             .arg("--no-webui");
 
+        if let Some(dir) = exe.parent() {
+            let current = std::env::var("PATH").unwrap_or_default();
+            let sep = if cfg!(windows) { ";" } else { ":" };
+            command.env("PATH", format!("{}{sep}{current}", dir.display()));
+        }
+
         configure_no_window(&mut command);
 
         let child = command

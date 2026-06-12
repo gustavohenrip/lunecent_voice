@@ -1,7 +1,7 @@
 # Bundled runtime resources
 
 This folder is packaged into the installer. Large binaries are fetched by
-`scripts/fetch-deps.ps1` (run before `npm run tauri build`) and are not committed
+`scripts/windows/fetch-deps.ps1` (run before `npm run tauri build`) and are not committed
 to source control.
 
 Expected contents after `fetch-deps`:

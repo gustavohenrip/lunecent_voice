@@ -47,7 +47,11 @@ pub struct AppState {
     pub app: AppHandle,
     pub config_path: PathBuf,
     pub models_dir: PathBuf,
+    pub bin_dir: PathBuf,
     pub resource_dir: PathBuf,
+    pub custom_models: RwLock<crate::custom_models::CustomStore>,
+    pub custom_models_path: PathBuf,
+    pub llama_setup_running: AtomicBool,
     pub settings: RwLock<Settings>,
     pub audio: Arc<AudioEngine>,
     pub transcribe: RwLock<Option<TranscribeEngine>>,
@@ -66,6 +70,22 @@ pub struct AppState {
 impl AppState {
     pub fn settings_snapshot(&self) -> Settings {
         self.settings.read().clone()
+    }
+
+    pub fn all_models(&self) -> Vec<models::ModelInfo> {
+        let mut list = models::registry();
+        for custom in &self.custom_models.read().models {
+            list.push(crate::custom_models::to_info(custom));
+        }
+        list
+    }
+
+    pub fn resolve_model(&self, id: &str) -> Option<models::ModelInfo> {
+        self.all_models().into_iter().find(|m| m.id == id)
+    }
+
+    pub fn persist_custom_models(&self) -> AppResult<()> {
+        self.custom_models.read().save(&self.custom_models_path)
     }
 
     pub fn set_status(&self, status: Status) {
@@ -95,9 +115,8 @@ impl AppState {
     pub fn load_engine(&self, prefer_gpu: bool) -> AppResult<()> {
         self.set_status(Status::Loading);
         let settings = self.settings_snapshot();
-        let info = models::registry()
-            .into_iter()
-            .find(|m| m.id == settings.whisper_model)
+        let info = self
+            .resolve_model(&settings.whisper_model)
             .ok_or_else(|| AppError::Model(format!("unknown model: {}", settings.whisper_model)))?;
         let path = models::model_path(&self.models_dir, &info.filename);
 
@@ -168,8 +187,42 @@ impl AppState {
         let threads = std::thread::available_parallelism()
             .map(|n| n.get() as i32)
             .unwrap_or(4);
-        let text = engine.transcribe(samples, language, threads)?;
+        let prompt = self.vocabulary_prompt();
+        let text = engine.transcribe(samples, language, threads, prompt.as_deref())?;
         Ok((text, engine.on_gpu))
+    }
+
+    pub fn vocabulary_prompt(&self) -> Option<String> {
+        let settings = self.settings.read();
+        let mut terms: Vec<String> = Vec::new();
+        let mut budget = 0usize;
+        for term in &settings.vocabulary {
+            let clean: String = term
+                .chars()
+                .filter(|c| *c != '\u{0}' && !c.is_control())
+                .collect();
+            let clean = clean.trim();
+            if clean.is_empty() {
+                continue;
+            }
+            if budget + clean.len() > 200 {
+                break;
+            }
+            budget += clean.len() + 2;
+            terms.push(clean.to_string());
+            if terms.len() >= 32 {
+                break;
+            }
+        }
+        if terms.is_empty() {
+            return None;
+        }
+        let joined = terms.join(", ");
+        let prompt = match settings.language.as_str() {
+            "en" => format!("The text may contain these terms: {joined}."),
+            _ => format!("O texto pode conter os termos: {joined}."),
+        };
+        Some(prompt)
     }
 
     pub fn resource_path(&self, name: &str) -> PathBuf {
@@ -190,6 +243,10 @@ impl AppState {
         } else {
             "llama-server"
         };
+        let installed = self.bin_dir.join(name);
+        if installed.exists() {
+            return installed;
+        }
         let bundled = self
             .resource_dir
             .join("resources")

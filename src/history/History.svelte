@@ -74,15 +74,15 @@
   }
 
   async function toDict(entry: HistoryEntry) {
-    const phrase = prompt("Frase falada (como o Whisper ouviu):", entry.raw_text);
+    const phrase = prompt("Spoken phrase (as Whisper heard it):", entry.raw_text);
     if (phrase === null) return;
-    const replacement = prompt("Substituição exata:", entry.final_text);
+    const replacement = prompt("Exact replacement:", entry.final_text);
     if (replacement === null) return;
     await api.addToDictionary(phrase, replacement).catch(() => {});
   }
 
   function fmtTime(ms: number): string {
-    return new Date(ms).toLocaleString("pt-BR", {
+    return new Date(ms).toLocaleString("en-US", {
       day: "2-digit",
       month: "2-digit",
       hour: "2-digit",
@@ -115,23 +115,23 @@
   <header class="titlebar" data-tauri-drag-region>
     <div class="brand">
       <span class="logo"></span>
-      <h1>Lunecent Voice <span>· Histórico</span></h1>
+      <h1>Lunecent Voice <span>· History</span></h1>
     </div>
     <div class="head-actions">
       {#if confirmClear}
-        <span class="confirm-q">Apagar todo o histórico?</span>
-        <button class="btn btn-confirm" onclick={doClear}>Confirmar</button>
-        <button class="btn ghost" onclick={() => (confirmClear = false)}>Cancelar</button>
+        <span class="confirm-q">Clear all history?</span>
+        <button class="btn btn-confirm" onclick={doClear}>Confirm</button>
+        <button class="btn ghost" onclick={() => (confirmClear = false)}>Cancel</button>
       {:else}
         <button class="btn danger" onclick={() => (confirmClear = true)}>
-          <Icon name="trash" size={15} /> Limpar tudo
+          <Icon name="trash" size={15} /> Clear all
         </button>
       {/if}
       <div class="winbtns">
-        <button class="winbtn" title="Minimizar" aria-label="Minimizar" onclick={minimize}>
+        <button class="winbtn" title="Minimize" aria-label="Minimize" onclick={minimize}>
           <Icon name="minus" size={15} />
         </button>
-        <button class="winbtn close" title="Fechar" aria-label="Fechar" onclick={() => api.hideWindow("history")}>
+        <button class="winbtn close" title="Close" aria-label="Close" onclick={() => api.hideWindow("history")}>
           <Icon name="x" size={15} />
         </button>
       </div>
@@ -141,29 +141,29 @@
   <div class="body">
     <div class="stats card">
       <div class="stat">
-        <span class="num tnum">{stats.total_words.toLocaleString("pt-BR")}</span>
-        <span class="lbl">Palavras</span>
+        <span class="num tnum">{stats.total_words.toLocaleString("en-US")}</span>
+        <span class="lbl">Words</span>
       </div>
       <div class="stat">
         <span class="num tnum">{fmtSpeaking(stats.total_speaking_ms)}</span>
-        <span class="lbl">Tempo falando</span>
+        <span class="lbl">Speaking time</span>
       </div>
       <div class="stat">
         <span class="num tnum">{stats.avg_wpm.toFixed(0)}</span>
-        <span class="lbl" title="Palavras por minuto">Média PPM</span>
+        <span class="lbl" title="Words per minute">Avg WPM</span>
       </div>
       <div class="stat">
-        <span class="num tnum">{stats.total_entries.toLocaleString("pt-BR")}</span>
-        <span class="lbl">Ditados</span>
+        <span class="num tnum">{stats.total_entries.toLocaleString("en-US")}</span>
+        <span class="lbl">Entries</span>
       </div>
     </div>
 
     <div class="toolbar">
       <div class="search">
         <Icon name="magnifying-glass" size={17} />
-        <input placeholder="Buscar no histórico…" bind:value={query} oninput={onSearch} />
+        <input placeholder="Search history…" bind:value={query} oninput={onSearch} />
       </div>
-      <span class="count tnum">{entries.length} {entries.length === 1 ? "registro" : "registros"}</span>
+      <span class="count tnum">{entries.length} {entries.length === 1 ? "entry" : "entries"}</span>
     </div>
 
     <div class="list">
@@ -180,28 +180,28 @@
           >
             <div class="final">{e.final_text}</div>
             {#if expanded.has(e.id) && e.raw_text !== e.final_text}
-              <div class="raw"><span class="raw-mark">original</span>{e.raw_text}</div>
+              <div class="raw"><span class="raw-mark">raw</span>{e.raw_text}</div>
             {/if}
             <div class="meta tnum">
               <span>{fmtTime(e.created_at)}</span>
               <span class="dot">·</span>
               <span>{fmtDuration(e.duration_ms)}</span>
               <span class="dot">·</span>
-              <span title="Palavras por minuto">{wpm(e)} PPM</span>
+              <span title="Words per minute">{wpm(e)} WPM</span>
               {#if e.on_gpu}<span class="tag gpu">GPU</span>{:else}<span class="tag cpu">CPU</span>{/if}
-              {#if e.llm_used}<span class="tag llm">IA</span>{/if}
+              {#if e.llm_used}<span class="tag llm">AI</span>{/if}
             </div>
           </div>
           <div class="entry-actions">
             <button class="btn ghost" onclick={() => copy(e.id)}>
               <Icon name={copiedId === e.id ? "check-circle" : "copy"} size={15} />
-              {copiedId === e.id ? "Copiado" : "Copiar"}
+              {copiedId === e.id ? "Copied" : "Copy"}
             </button>
             <button class="btn ghost" onclick={() => toDict(e)}>
-              <Icon name="book-bookmark" size={15} /> Dicionário
+              <Icon name="book-bookmark" size={15} /> Dictionary
             </button>
             <button class="btn ghost danger" onclick={() => remove(e.id)}>
-              <Icon name="trash" size={15} /> Excluir
+              <Icon name="trash" size={15} /> Delete
             </button>
           </div>
         </div>
@@ -209,7 +209,7 @@
       {#if entries.length === 0}
         <div class="empty">
           <Icon name="bird" size={36} />
-          <p>Nenhum ditado ainda. Segure o atalho e fale.</p>
+          <p>No transcriptions yet. Hold the shortcut and speak.</p>
         </div>
       {/if}
     </div>

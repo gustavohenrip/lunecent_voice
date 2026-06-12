@@ -77,6 +77,7 @@ pub async fn save_settings(
 
 fn llm_changed(old: &Settings, new: &Settings) -> bool {
     old.llm_enabled != new.llm_enabled
+        || old.translation_enabled != new.translation_enabled
         || old.llm_backend != new.llm_backend
         || old.llm_local_model != new.llm_local_model
         || old.llm_endpoint != new.llm_endpoint
@@ -163,7 +164,11 @@ pub fn add_to_dictionary(
 
 #[tauri::command]
 pub fn model_statuses(state: State<'_, SharedState>) -> Vec<ModelStatus> {
-    models::statuses(&state.models_dir)
+    state
+        .all_models()
+        .into_iter()
+        .map(|info| models::status_for(&state.models_dir, &info))
+        .collect()
 }
 
 struct DownloadGuard {
@@ -177,18 +182,15 @@ impl Drop for DownloadGuard {
     }
 }
 
-#[tauri::command]
-pub fn download_model(
+fn spawn_download(
     app: AppHandle,
-    state: State<'_, SharedState>,
-    id: String,
+    shared: SharedState,
+    info: models::ModelInfo,
 ) -> Result<(), String> {
-    let info = models::find(&id).ok_or_else(|| format!("modelo desconhecido: {id}"))?;
-    let shared = state.inner().clone();
     {
         let mut active = shared.downloading.lock();
         if active.contains(&info.id) {
-            return Err("download em andamento".to_string());
+            return Err("download in progress".to_string());
         }
         active.insert(info.id.clone());
     }
@@ -215,6 +217,173 @@ pub fn download_model(
         }
     });
     Ok(())
+}
+
+#[tauri::command]
+pub fn download_model(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+    id: String,
+) -> Result<(), String> {
+    let info = state
+        .resolve_model(&id)
+        .ok_or_else(|| format!("unknown model: {id}"))?;
+    spawn_download(app, state.inner().clone(), info)
+}
+
+#[tauri::command]
+pub fn add_custom_model(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+    label: String,
+    kind: models::ModelKind,
+    filename: String,
+    url: String,
+    size_bytes: u64,
+    download_now: bool,
+) -> Result<models::ModelInfo, String> {
+    let filename = crate::custom_models::sanitize_filename(&filename)
+        .ok_or_else(|| "invalid file name".to_string())?;
+    let url = url.trim().to_string();
+    if url.is_empty() {
+        return Err("empty link".to_string());
+    }
+    let label = if label.trim().is_empty() {
+        filename.clone()
+    } else {
+        label.trim().to_string()
+    };
+    if models::registry().iter().any(|m| m.filename == filename) {
+        return Err("a recommended model already uses this file".to_string());
+    }
+    let id = crate::custom_models::make_id(&filename, &url);
+    {
+        let store = state.custom_models.read();
+        if store.find(&id).is_some() || store.has_filename(&filename) {
+            return Err("this model was already added".to_string());
+        }
+    }
+    let model = crate::custom_models::CustomModel {
+        id,
+        label,
+        kind,
+        filename,
+        url,
+        size_bytes,
+    };
+    state.custom_models.write().upsert(model.clone());
+    state.persist_custom_models().map_err(|e| e.to_string())?;
+    let info = crate::custom_models::to_info(&model);
+    let _ = app.emit("models-changed", ());
+    if download_now {
+        let _ = spawn_download(app, state.inner().clone(), info.clone());
+    }
+    Ok(info)
+}
+
+#[tauri::command]
+pub async fn delete_model(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+    id: String,
+) -> Result<(), String> {
+    let shared = state.inner().clone();
+    let info = shared
+        .resolve_model(&id)
+        .ok_or_else(|| format!("unknown model: {id}"))?;
+
+    if shared.downloading.lock().contains(&id) {
+        return Err("download in progress".to_string());
+    }
+
+    let path = models::model_path(&shared.models_dir, &info.filename);
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("part"));
+
+    if id.starts_with("custom-") {
+        shared.custom_models.write().remove(&id);
+        shared.persist_custom_models().map_err(|e| e.to_string())?;
+    }
+
+    let present: Vec<models::ModelInfo> = shared
+        .all_models()
+        .into_iter()
+        .filter(|m| m.id != id && models::is_present(&shared.models_dir, m))
+        .collect();
+
+    let mut reload_whisper = false;
+    let mut restart_llm = false;
+    {
+        let mut settings = shared.settings.write();
+        if info.kind == models::ModelKind::Whisper && settings.whisper_model == id {
+            settings.whisper_model = present
+                .iter()
+                .find(|m| m.kind == models::ModelKind::Whisper && m.id == "large-v3-turbo")
+                .or_else(|| present.iter().find(|m| m.kind == models::ModelKind::Whisper))
+                .map(|m| m.id.clone())
+                .unwrap_or_else(|| "large-v3-turbo".to_string());
+            reload_whisper = true;
+        }
+        if info.kind == models::ModelKind::Llm && settings.llm_local_model == info.filename {
+            settings.llm_local_model = present
+                .iter()
+                .find(|m| m.kind == models::ModelKind::Llm && m.filename == "google_gemma-3-4b-it-Q4_K_M.gguf")
+                .or_else(|| present.iter().find(|m| m.kind == models::ModelKind::Llm))
+                .map(|m| m.filename.clone())
+                .unwrap_or_else(|| "google_gemma-3-4b-it-Q4_K_M.gguf".to_string());
+            restart_llm = true;
+        }
+    }
+    if reload_whisper || restart_llm {
+        shared.persist_settings().map_err(|e| e.to_string())?;
+    }
+    if reload_whisper {
+        let engine_state = shared.clone();
+        let prefer = engine_state.settings_snapshot().prefer_gpu;
+        let _ = tokio::task::spawn_blocking(move || engine_state.load_engine(prefer)).await;
+    }
+    if restart_llm {
+        services::restart_sidecar(&shared).await;
+    }
+
+    let _ = app.emit("models-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn setup_llama_auto(app: AppHandle, state: State<'_, SharedState>) -> Result<(), String> {
+    crate::llama_setup::launch(app, state.inner().clone());
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+pub struct LlamaStatus {
+    binary: bool,
+    model_present: bool,
+    ready: bool,
+}
+
+#[tauri::command]
+pub fn llama_status(state: State<'_, SharedState>) -> LlamaStatus {
+    let binary = state.sidecar_binary().exists();
+    let model_present = state
+        .all_models()
+        .into_iter()
+        .filter(|m| m.kind == models::ModelKind::Llm)
+        .any(|m| {
+            let path = models::model_path(&state.models_dir, &m.filename);
+            std::fs::metadata(&path)
+                .map(|meta| meta.len() > 1_000_000)
+                .unwrap_or(false)
+        });
+    let ready = state
+        .sidecar_ready
+        .load(std::sync::atomic::Ordering::Acquire);
+    LlamaStatus {
+        binary,
+        model_present,
+        ready,
+    }
 }
 
 #[tauri::command]

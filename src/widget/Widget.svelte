@@ -27,10 +27,10 @@
   let hovered = $state(false);
 
   const idleText = $derived.by(() => {
-    if (!status.audio_available) return "Sem microfone";
-    if (status.status === "loading") return "Carregando…";
-    if (status.status === "error") return "Erro no modelo";
-    if (!status.engine_ready) return "Baixe o modelo";
+    if (!status.audio_available) return "No microphone";
+    if (status.status === "loading") return "Loading…";
+    if (status.status === "error") return "Model error";
+    if (!status.engine_ready) return "Download the model";
     return "Lunecent Voice";
   });
 
@@ -105,7 +105,7 @@
           ),
         );
         unlisten.push(
-          await on("transcription-empty", () => showFlash("Nenhuma fala detectada", "err")),
+          await on("transcription-empty", () => showFlash("No speech detected", "err")),
         );
       } catch (_) {}
     })();
@@ -122,10 +122,10 @@
 </script>
 
 {#snippet dockButtons()}
-  <button class="icon" aria-label="Ajustes" onclick={() => api.openWindow("settings")}>
+  <button class="icon" aria-label="Settings" onclick={() => api.openWindow("settings")}>
     <Icon name="gear-six" size={15} />
   </button>
-  <button class="icon" aria-label="Histórico" onclick={() => api.openWindow("history")}>
+  <button class="icon" aria-label="History" onclick={() => api.openWindow("history")}>
     <Icon name="clock-counter-clockwise" size={15} />
   </button>
 {/snippet}
@@ -148,7 +148,7 @@
       class="seal"
       data-state={status.status}
       onclick={toggle}
-      aria-label={status.status === "recording" ? "Parar gravação" : "Iniciar gravação"}
+      aria-label={status.status === "recording" ? "Stop recording" : "Start recording"}
     >
       <span class="core"></span>
       <span class="halo"></span>
@@ -156,7 +156,7 @@
 
     <div class="center" data-tauri-drag-region>
       {#if status.status === "recording"}
-        <div class="wave" aria-label="Nível do microfone">
+        <div class="wave" aria-label="Microphone level">
           {#each levels as value}
             <span class="bar" style={`height:${(2 + value * 13).toFixed(1)}px`}></span>
           {/each}
@@ -164,7 +164,7 @@
       {:else if flash}
         <span class="flash" class:err={flash.kind === "err"}>{flash.text}</span>
       {:else if status.status === "processing"}
-        <span class="brand shimmer">Transcrevendo…</span>
+        <span class="brand shimmer">Transcribing…</span>
       {:else}
         <span class="brand" class:dim={!status.engine_ready || !status.audio_available}>
           {idleText}

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT"
 
-. "$ROOT/scripts/mac-setup.sh"
+. "$SCRIPT_DIR/mac-setup.sh"
 
 echo "Building Lunecent Voice .dmg (arm64 Apple Silicon, Metal)..."
 

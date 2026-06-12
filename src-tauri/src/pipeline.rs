@@ -33,10 +33,10 @@ pub fn begin_recording(state: &SharedState) {
         } else {
             Some(match meta.error.as_deref() {
                 Some("model not downloaded") => {
-                    "Modelo de voz não baixado. Abra os Ajustes para baixá-lo.".to_string()
+                    "Voice model not downloaded. Open Settings to download it.".to_string()
                 }
-                Some(other) => format!("Falha no modelo de voz: {other}"),
-                None => "O modelo de voz ainda está carregando, aguarde.".to_string(),
+                Some(other) => format!("Voice model failure: {other}"),
+                None => "The voice model is still loading, please wait.".to_string(),
             })
         }
     };
@@ -51,6 +51,7 @@ pub fn begin_recording(state: &SharedState) {
         );
         return;
     }
+    crate::sound::play(true);
     state.audio.start();
     state.set_status(Status::Recording);
 }
@@ -67,13 +68,14 @@ pub fn finish_recording(app: AppHandle, state: SharedState) {
     if !state.recording.swap(false, Ordering::AcqRel) {
         return;
     }
+    crate::sound::play(false);
     if state.busy.swap(true, Ordering::AcqRel) {
         let _ = state.audio.stop();
         let _ = app.emit(
             "pipeline-error",
             PipelineError {
                 stage: "busy".to_string(),
-                message: "Ainda processando o ditado anterior.".to_string(),
+                message: "Still processing the previous dictation.".to_string(),
             },
         );
         return;
@@ -163,7 +165,8 @@ async fn run_pipeline(
 
     let local_not_ready = settings.llm_backend == crate::config::LlmBackend::Local
         && !state.sidecar_ready.load(Ordering::Acquire);
-    let final_text = if settings.llm_enabled && !local_not_ready {
+    let want_llm = settings.llm_enabled || settings.translation_enabled;
+    let final_text = if want_llm && !local_not_ready {
         state.llm.cleanup(&settings, &processed).await
     } else {
         processed.clone()
@@ -240,11 +243,11 @@ fn maybe_trim(state: &AppState, mono: Vec<f32>) -> Vec<f32> {
 fn inject_block_hint() -> &'static str {
     #[cfg(target_os = "macos")]
     {
-        "Conceda permissão de Acessibilidade nas Configurações do Sistema para colar automaticamente; o texto está na área de transferência."
+        "Grant Accessibility permission in System Settings to paste automatically; the text is on the clipboard."
     }
     #[cfg(not(target_os = "macos"))]
     {
-        "Janelas elevadas (como administrador) bloqueiam a colagem; o texto está na área de transferência."
+        "Elevated windows (run as administrator) block pasting; the text is on the clipboard."
     }
 }
 

@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$root = Split-Path -Parent $PSScriptRoot
+$root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $resources = Join-Path $root 'src-tauri\resources'
 $binaries = Join-Path $resources 'binaries'
 $cuda = Join-Path $resources 'cuda'

@@ -7,6 +7,11 @@ import type {
   HistoryEntry,
   Stats,
   ModelStatus,
+  ModelInfo,
+  ModelKind,
+  HfParse,
+  HfFile,
+  LlamaStatus,
 } from "./types";
 
 export const api = {
@@ -28,6 +33,27 @@ export const api = {
     invoke<void>("add_to_dictionary", { phrase, replacement }),
   modelStatuses: () => invoke<ModelStatus[]>("model_statuses"),
   downloadModel: (id: string) => invoke<void>("download_model", { id }),
+  hfDetect: (url: string) => invoke<HfParse>("hf_detect", { url }),
+  hfListFiles: (repo: string) => invoke<HfFile[]>("hf_list_files", { repo }),
+  addCustomModel: (
+    label: string,
+    kind: ModelKind,
+    filename: string,
+    url: string,
+    sizeBytes: number,
+    downloadNow: boolean,
+  ) =>
+    invoke<ModelInfo>("add_custom_model", {
+      label,
+      kind,
+      filename,
+      url,
+      sizeBytes,
+      downloadNow,
+    }),
+  deleteModel: (id: string) => invoke<void>("delete_model", { id }),
+  setupLlamaAuto: () => invoke<void>("setup_llama_auto"),
+  llamaStatus: () => invoke<LlamaStatus>("llama_status"),
   reloadEngine: () => invoke<void>("reload_engine"),
   restartLlm: () => invoke<void>("restart_llm"),
   testLlm: () => invoke<string>("test_llm"),

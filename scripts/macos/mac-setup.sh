@@ -55,6 +55,6 @@ if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then
   printf "  clang  "; command -v clang >/dev/null 2>&1 && echo "ok" || echo "AUSENTE"
   echo ""
   echo "Nada para baixar quando ja esta tudo instalado. Agora rode:"
-  echo "  ./scripts/run-dev.sh        (modo dev, Metal)"
-  echo "  ./scripts/build-dmg.sh      (gera o .dmg)"
+  echo "  ./scripts/macos/run-dev.sh        (modo dev, Metal)"
+  echo "  ./scripts/macos/build-dmg.sh      (gera o .dmg)"
 fi

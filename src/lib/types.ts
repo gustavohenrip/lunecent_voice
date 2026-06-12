@@ -23,7 +23,10 @@ export interface Settings {
   filler_removal: boolean;
   filler_words: string[];
   dictionary: Record<string, string>;
+  vocabulary: string[];
   llm_enabled: boolean;
+  translation_enabled: boolean;
+  translation_target: string;
   llm_backend: LlmBackend;
   llm_local_model: string;
   llm_endpoint: string;
@@ -31,6 +34,7 @@ export interface Settings {
   llm_model_name: string;
   llm_timeout_ms: number;
   llm_temperature: number;
+  llm_gpu_layers: number;
   autostart: boolean;
   restore_clipboard: boolean;
   paste_delay_ms: number;
@@ -67,13 +71,49 @@ export interface Stats {
   avg_wpm: number;
 }
 
+export type ModelKind = "whisper" | "llm";
+
 export interface ModelInfo {
   id: string;
   label: string;
-  kind: "whisper" | "llm";
+  kind: ModelKind;
   filename: string;
   url: string;
   size_bytes: number;
+}
+
+export type HfParse =
+  | { kind: "file"; repo: string | null; filename: string; url: string; guessed: ModelKind | null }
+  | { kind: "repo"; repo: string }
+  | { kind: "invalid"; reason: string };
+
+export interface HfFile {
+  filename: string;
+  url: string;
+  size_bytes: number;
+  guessed: ModelKind | null;
+}
+
+export type LlamaStage =
+  | "resolve_release"
+  | "download_binary"
+  | "unzip"
+  | "download_model"
+  | "configure_start";
+
+export interface LlamaStatus {
+  binary: boolean;
+  model_present: boolean;
+  ready: boolean;
+}
+
+export interface LlamaSetupProgress {
+  stage: LlamaStage;
+  pct: number;
+  overall_pct: number;
+  message: string;
+  done: boolean;
+  error: string | null;
 }
 
 export interface ModelStatus {

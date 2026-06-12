@@ -1,11 +1,11 @@
 use crate::error::{AppError, AppResult};
 use futures_util::StreamExt;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter};
 use tokio::io::AsyncWriteExt;
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelKind {
     Whisper,
@@ -92,37 +92,33 @@ pub fn is_present(models_dir: &Path, info: &ModelInfo) -> bool {
     }
 }
 
-pub fn statuses(models_dir: &Path) -> Vec<ModelStatus> {
-    registry()
-        .into_iter()
-        .map(|info| {
-            let path = model_path(models_dir, &info.filename);
-            let actual_bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-            let present = is_present(models_dir, &info);
-            ModelStatus {
-                info,
-                present,
-                actual_bytes,
-            }
-        })
-        .collect()
+pub fn status_for(models_dir: &Path, info: &ModelInfo) -> ModelStatus {
+    let path = model_path(models_dir, &info.filename);
+    let actual_bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    let present = is_present(models_dir, info);
+    ModelStatus {
+        info: info.clone(),
+        present,
+        actual_bytes,
+    }
 }
 
-pub async fn download(app: &AppHandle, models_dir: &Path, info: &ModelInfo) -> AppResult<()> {
-    tokio::fs::create_dir_all(models_dir)
-        .await
-        .map_err(|e| AppError::Download(e.to_string()))?;
-
-    let dest = model_path(models_dir, &info.filename);
+pub async fn download_to_file(
+    client: &reqwest::Client,
+    url: &str,
+    dest: &Path,
+    fallback_total: u64,
+    mut on_progress: impl FnMut(u64, u64),
+) -> AppResult<u64> {
+    if let Some(parent) = dest.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| AppError::Download(e.to_string()))?;
+    }
     let part = dest.with_extension("part");
 
-    let client = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| AppError::Download(e.to_string()))?;
-
     let response = client
-        .get(&info.url)
+        .get(url)
         .send()
         .await
         .map_err(|e| AppError::Download(e.to_string()))?
@@ -130,7 +126,7 @@ pub async fn download(app: &AppHandle, models_dir: &Path, info: &ModelInfo) -> A
         .map_err(|e| AppError::Download(e.to_string()))?;
 
     let reported = response.content_length();
-    let total = reported.unwrap_or(info.size_bytes);
+    let total = reported.unwrap_or(fallback_total);
 
     let mut file = tokio::fs::File::create(&part)
         .await
@@ -138,19 +134,35 @@ pub async fn download(app: &AppHandle, models_dir: &Path, info: &ModelInfo) -> A
 
     let mut downloaded: u64 = 0;
     let mut stream = response.bytes_stream();
-    let mut last_emit: u64 = 0;
+    let stall = std::time::Duration::from_secs(120);
 
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| AppError::Download(e.to_string()))?;
-        file.write_all(&chunk)
-            .await
-            .map_err(|e| AppError::Download(e.to_string()))?;
-        downloaded += chunk.len() as u64;
-
-        if downloaded - last_emit >= 4_000_000 || downloaded == total {
-            last_emit = downloaded;
-            emit_progress(app, info, downloaded, total, false, None);
+    loop {
+        let next = match tokio::time::timeout(stall, stream.next()).await {
+            Ok(item) => item,
+            Err(_) => {
+                drop(file);
+                let _ = tokio::fs::remove_file(&part).await;
+                return Err(AppError::Download(
+                    "stalled download: no data for 120s".to_string(),
+                ));
+            }
+        };
+        let chunk = match next {
+            Some(Ok(chunk)) => chunk,
+            Some(Err(err)) => {
+                drop(file);
+                let _ = tokio::fs::remove_file(&part).await;
+                return Err(AppError::Download(err.to_string()));
+            }
+            None => break,
+        };
+        if let Err(err) = file.write_all(&chunk).await {
+            drop(file);
+            let _ = tokio::fs::remove_file(&part).await;
+            return Err(AppError::Download(err.to_string()));
         }
+        downloaded += chunk.len() as u64;
+        on_progress(downloaded, total);
     }
 
     file.flush()
@@ -161,13 +173,33 @@ pub async fn download(app: &AppHandle, models_dir: &Path, info: &ModelInfo) -> A
     if reported.is_some() && total > 0 && downloaded != total {
         let _ = tokio::fs::remove_file(&part).await;
         return Err(AppError::Download(format!(
-            "download incompleto: {downloaded} de {total} bytes"
+            "incomplete download: {downloaded} of {total} bytes"
         )));
     }
 
-    tokio::fs::rename(&part, &dest)
+    tokio::fs::rename(&part, dest)
         .await
         .map_err(|e| AppError::Download(e.to_string()))?;
+
+    Ok(total.max(downloaded))
+}
+
+pub async fn download(app: &AppHandle, models_dir: &Path, info: &ModelInfo) -> AppResult<()> {
+    let dest = model_path(models_dir, &info.filename);
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| AppError::Download(e.to_string()))?;
+
+    let mut last_emit: u64 = 0;
+    let total = download_to_file(&client, &info.url, &dest, info.size_bytes, |downloaded, total| {
+        if downloaded - last_emit >= 4_000_000 || downloaded == total {
+            last_emit = downloaded;
+            emit_progress(app, info, downloaded, total, false, None);
+        }
+    })
+    .await?;
 
     emit_progress(app, info, total, total, true, None);
     Ok(())

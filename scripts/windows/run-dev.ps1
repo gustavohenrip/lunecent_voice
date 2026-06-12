@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 try {
-    $root = Split-Path -Parent $PSScriptRoot
+    $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     Set-Location $root
 
     Write-Host "Lunecent Voice - modo desenvolvimento" -ForegroundColor Cyan
@@ -15,9 +15,9 @@ try {
     } catch [Microsoft.PowerShell.Commands.ProcessCommandException] {
     }
 
-    $buildEnv = Join-Path $root "scripts\build-env.ps1"
+    $buildEnv = Join-Path $PSScriptRoot "build-env.ps1"
     if (-not (Test-Path $buildEnv)) {
-        throw "scripts\build-env.ps1 nao encontrado."
+        throw "build-env.ps1 nao encontrado."
     }
     . $buildEnv
 

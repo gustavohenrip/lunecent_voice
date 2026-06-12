@@ -55,7 +55,7 @@ jobs:
 
       - name: Fetch native dependencies (GPU)
         if: matrix.variant == 'gpu'
-        run: powershell -ExecutionPolicy Bypass -File ./scripts/fetch-deps.ps1
+        run: powershell -ExecutionPolicy Bypass -File ./scripts/windows/fetch-deps.ps1
 
       - name: Fetch VAD model (CPU)
         if: matrix.variant == 'cpu'

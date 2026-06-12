@@ -106,16 +106,16 @@ Then from the project root:
 
 ```powershell
 # GPU build — produces an NSIS .exe and .msi installer
-build.bat
+scripts\windows\build.bat
 
 # CPU build — runs on any Windows machine, no GPU needed
-build-cpu.bat
+scripts\windows\build-cpu.bat
 ```
 
 Both scripts wrap the same steps:
 
 ```powershell
-. .\scripts\build-env.ps1                  # sets CUDA_PATH, LIBCLANG_PATH, PATH
+. .\scripts\windows\build-env.ps1          # sets CUDA_PATH, LIBCLANG_PATH, PATH
 npm install
 npm run fetch-deps                          # GPU: llama-server + CUDA DLLs + VAD model
 npx tauri build --features cuda             # GPU
@@ -132,10 +132,10 @@ automatically. You only need to run it once.
 
 ```bash
 # Check and install dependencies
-./scripts/mac-setup.sh
+./scripts/macos/mac-setup.sh
 
 # Build the .dmg installer (Apple Silicon, Metal GPU)
-./scripts/build-dmg.sh
+./scripts/macos/build-dmg.sh
 ```
 
 The `.dmg` lands in `src-tauri/target/release/bundle/dmg/`.
@@ -147,7 +147,7 @@ The `.dmg` lands in `src-tauri/target/release/bundle/dmg/`.
 ### Windows
 
 ```powershell
-run-dev.bat
+scripts\windows\run-dev.bat
 ```
 
 Kills any running instance, sets up the build environment, and launches `tauri dev`
@@ -158,10 +158,10 @@ which takes a few minutes.
 
 ```bash
 # Metal GPU (default)
-./scripts/run-dev.sh
+./scripts/macos/run-dev.sh
 
 # CPU only
-./scripts/run-dev.sh cpu
+./scripts/macos/run-dev.sh cpu
 ```
 
 Same behavior: kills any running instance and launches `tauri dev` with hot reload.
@@ -211,7 +211,8 @@ src-tauri/src/
   tray.rs           system tray
   lib.rs            window, tray, DLL path, level emitter setup
 src/                Svelte 5 frontend: widget, settings, history windows
-scripts/            build-env, fetch-deps, build/run helpers (Windows + macOS)
+scripts/windows/    build-env, fetch-deps, build.bat / build-cpu.bat / run-dev.bat (Windows)
+scripts/macos/      mac-setup, build-dmg, run-dev (macOS)
 ```
 
 ## License

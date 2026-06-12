@@ -5,11 +5,11 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{AppHandle, Manager};
 
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
-    let toggle = MenuItemBuilder::with_id("toggle", "Iniciar / parar ditado").build(app)?;
-    let widget = MenuItemBuilder::with_id("widget", "Mostrar widget").build(app)?;
-    let settings = MenuItemBuilder::with_id("settings", "Ajustes").build(app)?;
-    let history = MenuItemBuilder::with_id("history", "Histórico e estatísticas").build(app)?;
-    let quit = MenuItemBuilder::with_id("quit", "Sair do Lunecent Voice").build(app)?;
+    let toggle = MenuItemBuilder::with_id("toggle", "Start / stop dictation").build(app)?;
+    let widget = MenuItemBuilder::with_id("widget", "Show widget").build(app)?;
+    let settings = MenuItemBuilder::with_id("settings", "Settings").build(app)?;
+    let history = MenuItemBuilder::with_id("history", "History and statistics").build(app)?;
+    let quit = MenuItemBuilder::with_id("quit", "Quit Lunecent Voice").build(app)?;
 
     let menu = MenuBuilder::new(app)
         .items(&[&toggle, &widget, &settings, &history])

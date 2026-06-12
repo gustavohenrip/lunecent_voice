@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 try {
-    $root = Split-Path -Parent $PSScriptRoot
+    $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     Set-Location $root
 
     try {
@@ -10,7 +10,7 @@ try {
     } catch [Microsoft.PowerShell.Commands.ProcessCommandException] {
     }
 
-    . (Join-Path $root "scripts\build-env.ps1") | Out-Null
+    . (Join-Path $PSScriptRoot "build-env.ps1") | Out-Null
 
     $logDir = Join-Path $root "logs"
     if (-not (Test-Path $logDir)) {

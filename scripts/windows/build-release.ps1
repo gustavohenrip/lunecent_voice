@@ -6,12 +6,12 @@ param(
 $ErrorActionPreference = "Stop"
 
 try {
-    $root = Split-Path -Parent $PSScriptRoot
+    $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     Set-Location $root
 
     Write-Host "Building Lunecent Voice [$Target] ..." -ForegroundColor Cyan
 
-    . (Join-Path $root "scripts\build-env.ps1")
+    . (Join-Path $PSScriptRoot "build-env.ps1")
 
     if (-not $env:LIBCLANG_PATH) {
         throw "LIBCLANG_PATH not set. Install LLVM (e.g. winget install LLVM.LLVM)."
@@ -42,7 +42,7 @@ try {
 
     if ($Target -eq "gpu") {
         Write-Host "Fetching native deps (llama-server CUDA + CUDA runtime DLLs)..." -ForegroundColor Cyan
-        powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "scripts\fetch-deps.ps1")
+        powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "fetch-deps.ps1")
         Write-Host "Compiling release (this takes a while)..." -ForegroundColor Cyan
         npx tauri build --features cuda
         if ($LASTEXITCODE -ne 0) { throw "tauri build (gpu) failed ($LASTEXITCODE)." }

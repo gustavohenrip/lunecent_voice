@@ -26,7 +26,9 @@ pub async fn restart_sidecar(state: &SharedState) {
     state.sidecar_ready.store(false, Ordering::Release);
 
     let settings = state.settings_snapshot();
-    if !settings.llm_enabled || settings.llm_backend != LlmBackend::Local {
+    if (!settings.llm_enabled && !settings.translation_enabled)
+        || settings.llm_backend != LlmBackend::Local
+    {
         return;
     }
 
@@ -53,11 +55,12 @@ pub async fn restart_sidecar(state: &SharedState) {
         }
     };
 
-    match Sidecar::spawn(&exe, &model, port, 99, 2048) {
+    let gpu_layers = settings.llm_gpu_layers.clamp(0, 999);
+    match Sidecar::spawn(&exe, &model, port, gpu_layers, 2048) {
         Ok(child) => {
             *state.sidecar.lock() = Some(child);
             let ready =
-                sidecar::wait_until_ready(state.llm.http(), port, Duration::from_secs(60)).await;
+                sidecar::wait_until_ready(state.llm.http(), port, Duration::from_secs(90)).await;
             state.sidecar_ready.store(ready, Ordering::Release);
             if ready {
                 tracing::info!("llama-server ready on port {port}");

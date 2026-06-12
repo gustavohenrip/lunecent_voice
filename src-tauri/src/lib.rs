@@ -2,10 +2,13 @@ mod audio;
 mod cleanup;
 mod commands;
 mod config;
+mod custom_models;
 mod dictionary;
 mod error;
+mod hf;
 mod history;
 mod hotkey;
+mod llama_setup;
 #[cfg(windows)]
 mod inputhook;
 #[cfg(target_os = "macos")]
@@ -15,6 +18,7 @@ mod models;
 mod pipeline;
 mod services;
 mod sidecar;
+mod sound;
 mod state;
 mod transcribe;
 mod tray;
@@ -79,7 +83,13 @@ pub fn run() {
             commands::test_llm,
             commands::set_autostart,
             commands::open_window,
-            commands::hide_window
+            commands::hide_window,
+            commands::add_custom_model,
+            commands::delete_model,
+            commands::setup_llama_auto,
+            commands::llama_status,
+            hf::hf_detect,
+            hf::hf_list_files
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lunecent Voice");
@@ -88,17 +98,24 @@ pub fn run() {
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
 
-    let config_dir = handle.path().app_config_dir()?;
-    std::fs::create_dir_all(&config_dir)?;
-    let data_dir = handle.path().app_data_dir()?;
-    std::fs::create_dir_all(&data_dir)?;
+    let base_dir = resolve_base_dir(&handle);
+    let config_dir = base_dir.join("config");
+    let data_dir = base_dir.join("data");
     let models_dir = data_dir.join("models");
-    std::fs::create_dir_all(&models_dir)?;
+    let bin_dir = data_dir.join("bin");
+    let _ = std::fs::create_dir_all(&config_dir);
+    let _ = std::fs::create_dir_all(&models_dir);
+    let _ = std::fs::create_dir_all(&bin_dir);
+
+    migrate_legacy_data(&handle, &config_dir, &data_dir, &models_dir);
+
     let resource_dir = handle
         .path()
         .resource_dir()
         .unwrap_or_else(|_| PathBuf::from("."));
     let config_path = config_dir.join("settings.json");
+    let custom_models_path = config_dir.join("custom_models.json");
+    let custom_store = custom_models::CustomStore::load(&custom_models_path);
 
     let settings = Settings::load(&config_path);
     let _ = settings.save(&config_path);
@@ -114,7 +131,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         app: handle.clone(),
         config_path,
         models_dir,
+        bin_dir,
         resource_dir,
+        custom_models: RwLock::new(custom_store),
+        custom_models_path,
+        llama_setup_running: AtomicBool::new(false),
         settings: RwLock::new(settings),
         audio,
         transcribe: RwLock::new(None),
@@ -215,6 +236,79 @@ fn position_widget(app: &tauri::AppHandle) {
                 monitor_pos.y + monitor_size.height as i32 - widget_size.height as i32 - taskbar;
             let _ = window.set_position(tauri::PhysicalPosition { x, y });
         }
+    }
+}
+
+fn resolve_base_dir(handle: &tauri::AppHandle) -> PathBuf {
+    let mut candidates = Vec::new();
+    if let Ok(documents) = handle.path().document_dir() {
+        candidates.push(documents.join("Lunecent Voice"));
+    }
+    if let Ok(data) = handle.path().app_data_dir() {
+        candidates.push(data.join("Lunecent Voice"));
+    }
+    for base in &candidates {
+        if std::fs::create_dir_all(base).is_ok() {
+            return base.clone();
+        }
+    }
+    candidates
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn migrate_legacy_data(
+    handle: &tauri::AppHandle,
+    config_dir: &Path,
+    data_dir: &Path,
+    models_dir: &Path,
+) {
+    if let Ok(old_config) = handle.path().app_config_dir() {
+        move_if_absent(
+            &old_config.join("settings.json"),
+            &config_dir.join("settings.json"),
+        );
+    }
+    if let Ok(old_data) = handle.path().app_data_dir() {
+        for name in ["history.db", "history.db-wal", "history.db-shm"] {
+            move_if_absent(&old_data.join(name), &data_dir.join(name));
+        }
+        if let Ok(entries) = std::fs::read_dir(old_data.join("models")) {
+            for entry in entries.flatten() {
+                let from = entry.path();
+                if from.is_file() {
+                    if let Some(file) = from.file_name() {
+                        move_if_absent(&from, &models_dir.join(file));
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn move_if_absent(from: &Path, to: &Path) {
+    if to.exists() || !from.exists() {
+        return;
+    }
+    if let Some(parent) = to.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if std::fs::rename(from, to).is_ok() {
+        return;
+    }
+    let mut tmp = to.as_os_str().to_owned();
+    tmp.push(".migrating");
+    let tmp = PathBuf::from(tmp);
+    let _ = std::fs::remove_file(&tmp);
+    if std::fs::copy(from, &tmp).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        return;
+    }
+    if std::fs::rename(&tmp, to).is_ok() {
+        let _ = std::fs::remove_file(from);
+    } else {
+        let _ = std::fs::remove_file(&tmp);
     }
 }
 
