@@ -131,17 +131,32 @@ async fn run_pipeline(
     let blocking_state = state.clone();
     let lang_for_blocking = language.clone();
     let join = tokio::task::spawn_blocking(move || {
+        if blocking_state.cancel.load(Ordering::Acquire) {
+            return Ok((String::new(), false));
+        }
         let mono = captured.to_mono_16k();
         let peak = mono.iter().fold(0f32, |acc, s| acc.max(s.abs()));
         let mono_len = mono.len();
+        let vad_start = std::time::Instant::now();
         let trimmed = maybe_trim(&blocking_state, mono);
         tracing::info!(
-            "pipeline audio: mono {} samples (peak {:.4}), after vad {} samples",
+            "pipeline audio: mono {} samples (peak {:.4}), after vad {} samples, vad took {} ms",
             mono_len,
             peak,
-            trimmed.len()
+            trimmed.len(),
+            vad_start.elapsed().as_millis()
         );
-        blocking_state.transcribe_blocking(&trimmed, lang_for_blocking.as_deref(), whisper_translated)
+        if blocking_state.cancel.load(Ordering::Acquire) {
+            return Ok((String::new(), false));
+        }
+        let whisper_start = std::time::Instant::now();
+        let result = blocking_state.transcribe_blocking(
+            &trimmed,
+            lang_for_blocking.as_deref(),
+            whisper_translated,
+        );
+        tracing::info!("whisper took {} ms", whisper_start.elapsed().as_millis());
+        result
     })
     .await;
 
@@ -190,8 +205,26 @@ async fn run_pipeline(
         } else {
             std::borrow::Cow::Borrowed(&settings)
         };
-        state.llm.cleanup(&*eff, &processed).await
+        let llm_start = std::time::Instant::now();
+        let cleanup = state.llm.cleanup(&*eff, &processed);
+        tokio::pin!(cleanup);
+        let text = loop {
+            tokio::select! {
+                out = &mut cleanup => break out,
+                _ = tokio::time::sleep(std::time::Duration::from_millis(120)) => {
+                    if state.cancel.load(Ordering::Acquire) {
+                        let _ = app.emit("transcription-cancelled", ());
+                        return Ok(());
+                    }
+                }
+            }
+        };
+        tracing::info!("llm cleanup took {} ms", llm_start.elapsed().as_millis());
+        text
     } else {
+        if want_llm && local_not_ready {
+            tracing::info!("llm skipped: local server not ready");
+        }
         processed.clone()
     };
     let llm_used = final_text != processed;

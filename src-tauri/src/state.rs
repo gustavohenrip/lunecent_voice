@@ -133,8 +133,19 @@ impl AppState {
             return Err(AppError::Model("model not downloaded".to_string()));
         }
 
+        let load_start = std::time::Instant::now();
+        tracing::info!(
+            "loading whisper model {} (prefer_gpu {prefer_gpu}) from {}",
+            settings.whisper_model,
+            path.display()
+        );
         match TranscribeEngine::load(&path, prefer_gpu) {
             Ok(engine) => {
+                tracing::info!(
+                    "whisper model loaded in {} ms (on_gpu {})",
+                    load_start.elapsed().as_millis(),
+                    engine.on_gpu
+                );
                 let on_gpu = engine.on_gpu;
                 *self.transcribe.write() = Some(engine);
                 *self.engine_meta.write() = EngineMeta {
@@ -147,6 +158,10 @@ impl AppState {
                 Ok(())
             }
             Err(err) => {
+                tracing::error!(
+                    "whisper model load FAILED after {} ms: {err}",
+                    load_start.elapsed().as_millis()
+                );
                 *self.transcribe.write() = None;
                 *self.engine_meta.write() = EngineMeta {
                     loaded_model: settings.whisper_model.clone(),
@@ -182,7 +197,18 @@ impl AppState {
         language: Option<&str>,
         translate: bool,
     ) -> AppResult<(String, bool)> {
-        let guard = self.transcribe.read();
+        let guard = loop {
+            if self.cancel.load(Ordering::Acquire) {
+                return Ok((String::new(), false));
+            }
+            if let Some(guard) = self
+                .transcribe
+                .try_read_for(std::time::Duration::from_millis(200))
+            {
+                break guard;
+            }
+            tracing::info!("waiting for whisper engine lock (model loading)");
+        };
         let engine = guard
             .as_ref()
             .ok_or_else(|| AppError::Transcribe("engine not loaded".to_string()))?;

@@ -342,8 +342,30 @@ fn prepend_dll_dirs(resource_dir: &Path) {
 fn init_tracing() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_target(false)
-        .try_init();
+    match log_file() {
+        Some(file) => {
+            let _ = tracing_subscriber::fmt()
+                .with_env_filter(filter)
+                .with_target(false)
+                .with_ansi(false)
+                .with_writer(std::sync::Mutex::new(file))
+                .try_init();
+        }
+        None => {
+            let _ = tracing_subscriber::fmt()
+                .with_env_filter(filter)
+                .with_target(false)
+                .try_init();
+        }
+    }
+}
+
+fn log_file() -> Option<std::fs::File> {
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })?;
+    let dir = PathBuf::from(home)
+        .join("Documents")
+        .join("Lunecent Voice")
+        .join("logs");
+    std::fs::create_dir_all(&dir).ok()?;
+    std::fs::File::create(dir.join("lunecent.log")).ok()
 }

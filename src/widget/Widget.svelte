@@ -1,13 +1,18 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { api, on, getCurrentWindow, type UnlistenFn } from "../lib/ipc";
   import { currentMonitor } from "@tauri-apps/api/window";
+  import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
   import type { StatusPayload, CompletePayload, PipelineErrorPayload } from "../lib/types";
   import Icon from "../lib/Icon.svelte";
 
   const BAR_COUNT = 18;
   const PILL_HALF = 75;
   const DOCK_NEED = 74;
+  const PILL_MIN = 150;
+  const PILL_MAX = 440;
+  const WINDOW_EXTRA = 170;
+  const WINDOW_HEIGHT = 40;
 
   let status = $state<StatusPayload>({
     status: "idle",
@@ -28,6 +33,11 @@
   let elapsed = $state(0);
   let procStart = 0;
   let procTimer: ReturnType<typeof setInterval> | undefined;
+  let cancelling = $state(false);
+  let pillW = $state(PILL_MIN);
+  let measureEl: HTMLElement | undefined = $state();
+  let resizeSeq = 0;
+  let shrinkTimer: ReturnType<typeof setTimeout> | undefined;
 
   $effect(() => {
     if (status.status === "processing") {
@@ -42,6 +52,7 @@
       clearInterval(procTimer);
       procTimer = undefined;
       elapsed = 0;
+      cancelling = false;
     }
     return () => {
       if (procTimer) {
@@ -52,6 +63,7 @@
   });
 
   const procLabel = $derived.by(() => {
+    if (cancelling) return "Cancelling…";
     if (elapsed >= 20) return `Taking long ${elapsed}s`;
     if (elapsed >= 1) return `Transcribing ${elapsed}s`;
     return "Transcribing…";
@@ -67,10 +79,74 @@
 
   function showFlash(text: string, kind: "ok" | "err") {
     if (!text) return;
-    flash = { text: text.length > 30 ? text.slice(0, 29) + "…" : text, kind };
+    flash = { text: text.length > 220 ? text.slice(0, 219) + "…" : text, kind };
     clearTimeout(flashTimer);
-    flashTimer = setTimeout(() => (flash = null), kind === "err" ? 4500 : 2600);
+    flashTimer = setTimeout(() => (flash = null), kind === "err" ? 7000 : 2600);
   }
+
+  const centerText = $derived.by(() => {
+    if (flash) return flash.text;
+    if (status.status === "processing") return procLabel;
+    return idleText;
+  });
+
+  async function resizeWindowTo(targetWin: number, anchorRight: boolean) {
+    const win = getCurrentWindow();
+    const [pos, size, scale, mon] = await Promise.all([
+      win.outerPosition(),
+      win.outerSize(),
+      win.scaleFactor(),
+      currentMonitor(),
+    ]);
+    const delta = targetWin - size.width / scale;
+    if (Math.abs(delta) < 2) return;
+    await win.setResizable(true);
+    await win.setSize(new LogicalSize(targetWin, WINDOW_HEIGHT));
+    if (anchorRight) {
+      let nx = pos.x / scale - delta;
+      if (mon) nx = Math.max(mon.position.x / scale, nx);
+      await win.setPosition(new LogicalPosition(nx, pos.y / scale));
+    }
+    await win.setResizable(false);
+  }
+
+  async function applyWindowWidth(targetPill: number) {
+    const seq = ++resizeSeq;
+    clearTimeout(shrinkTimer);
+    try {
+      const grow = targetPill > pillW;
+      if (grow) {
+        await resizeWindowTo(targetPill + WINDOW_EXTRA, dockSide === "right");
+        if (seq === resizeSeq) pillW = targetPill;
+      } else {
+        pillW = targetPill;
+        shrinkTimer = setTimeout(async () => {
+          if (seq !== resizeSeq) return;
+          try {
+            await resizeWindowTo(targetPill + WINDOW_EXTRA, dockSide === "right");
+          } catch (_) {}
+        }, 400);
+      }
+    } catch (_) {
+      pillW = targetPill;
+    }
+  }
+
+  $effect(() => {
+    const mode = status.status;
+    void centerText;
+    void (async () => {
+      await tick();
+      if (mode === "recording") {
+        void applyWindowWidth(PILL_MIN);
+        return;
+      }
+      const textW = measureEl ? measureEl.scrollWidth : 0;
+      const extra = mode === "processing" ? 25 : 0;
+      const target = Math.max(PILL_MIN, Math.min(PILL_MAX, 52 + textW + extra));
+      void applyWindowWidth(target);
+    })();
+  });
 
   function pushLevel(raw: number) {
     const shaped = Math.min(1, Math.pow(Math.max(0, raw) * 6.5, 0.75));
@@ -155,6 +231,7 @@
   }
 
   function cancelProcessing() {
+    cancelling = true;
     api.cancelRecording().catch(() => {});
   }
 
@@ -186,7 +263,9 @@
     {@render dockButtons()}
   </div>
 
-  <div class="pill" data-state={status.status} data-tauri-drag-region>
+  <span class="measure" bind:this={measureEl}>{centerText}</span>
+
+  <div class="pill" data-state={status.status} data-tauri-drag-region style={`width:${pillW}px`}>
     <button
       class="seal"
       data-state={status.status}
@@ -294,7 +373,20 @@
     border: 1px solid var(--line-strong);
     box-shadow: var(--shadow);
     color: var(--ink);
-    transition: border-color 0.25s ease;
+    transition:
+      border-color 0.25s ease,
+      width 0.36s cubic-bezier(0.22, 0.7, 0.3, 1);
+  }
+
+  .measure {
+    position: absolute;
+    visibility: hidden;
+    white-space: nowrap;
+    font-family: var(--font-body);
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    pointer-events: none;
   }
 
   .pill[data-state="recording"] {
