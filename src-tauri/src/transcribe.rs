@@ -1,5 +1,7 @@
 use crate::error::{AppError, AppResult};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 pub struct TranscribeEngine {
@@ -51,6 +53,8 @@ impl TranscribeEngine {
         language: Option<&str>,
         n_threads: i32,
         initial_prompt: Option<&str>,
+        translate: bool,
+        cancel: Arc<AtomicBool>,
     ) -> AppResult<String> {
         if samples.is_empty() {
             return Ok(String::new());
@@ -61,14 +65,26 @@ impl TranscribeEngine {
             .create_state()
             .map_err(|e| AppError::Transcribe(format!("create state failed: {e}")))?;
 
-        let mut params = FullParams::new(SamplingStrategy::BeamSearch {
-            beam_size: 5,
-            patience: -1.0,
-        });
+        let strategy = if self.on_gpu {
+            SamplingStrategy::BeamSearch {
+                beam_size: 5,
+                patience: -1.0,
+            }
+        } else {
+            SamplingStrategy::Greedy { best_of: 1 }
+        };
+        let mut params = FullParams::new(strategy);
         params.set_n_threads(n_threads.max(1));
-        params.set_translate(false);
+        params.set_translate(translate);
         params.set_language(language);
-        params.set_no_context(false);
+        params.set_temperature(0.0);
+        params.set_temperature_inc(0.0);
+        params.set_no_context(true);
+        params.set_n_max_text_ctx(64);
+        params.set_suppress_blank(true);
+        params.set_suppress_nst(true);
+        params.set_single_segment(false);
+        params.set_token_timestamps(false);
         params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);
@@ -78,10 +94,19 @@ impl TranscribeEngine {
                 params.set_initial_prompt(prompt);
             }
         }
+        let abort = cancel.clone();
+        params.set_abort_callback_safe(move || abort.load(Ordering::Relaxed));
 
-        state
-            .full(params, samples)
-            .map_err(|e| AppError::Transcribe(format!("inference failed: {e}")))?;
+        if let Err(err) = state.full(params, samples) {
+            if cancel.load(Ordering::Relaxed) {
+                return Ok(String::new());
+            }
+            return Err(AppError::Transcribe(format!("inference failed: {err}")));
+        }
+
+        if cancel.load(Ordering::Relaxed) {
+            return Ok(String::new());
+        }
 
         let segments = state.full_n_segments();
 

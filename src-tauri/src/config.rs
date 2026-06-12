@@ -147,6 +147,10 @@ impl Settings {
             other => Some(other.to_string()),
         }
     }
+
+    pub fn whisper_translate(&self) -> bool {
+        self.translation_enabled && self.translation_target.trim().eq_ignore_ascii_case("english")
+    }
 }
 
 fn backup_corrupt(path: &Path) -> AppResult<()> {

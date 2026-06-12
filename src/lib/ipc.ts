@@ -12,6 +12,7 @@ import type {
   HfParse,
   HfFile,
   LlamaStatus,
+  HardwareInfo,
 } from "./types";
 
 export const api = {
@@ -54,6 +55,7 @@ export const api = {
   deleteModel: (id: string) => invoke<void>("delete_model", { id }),
   setupLlamaAuto: () => invoke<void>("setup_llama_auto"),
   llamaStatus: () => invoke<LlamaStatus>("llama_status"),
+  hardwareInfo: () => invoke<HardwareInfo>("hardware_info"),
   reloadEngine: () => invoke<void>("reload_engine"),
   restartLlm: () => invoke<void>("restart_llm"),
   testLlm: () => invoke<string>("test_llm"),

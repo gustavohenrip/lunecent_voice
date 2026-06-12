@@ -64,6 +64,7 @@ pub struct AppState {
     pub recording: AtomicBool,
     pub busy: AtomicBool,
     pub sidecar_ready: AtomicBool,
+    pub cancel: Arc<AtomicBool>,
     pub downloading: Mutex<std::collections::HashSet<String>>,
 }
 
@@ -179,16 +180,26 @@ impl AppState {
         &self,
         samples: &[f32],
         language: Option<&str>,
+        translate: bool,
     ) -> AppResult<(String, bool)> {
         let guard = self.transcribe.read();
         let engine = guard
             .as_ref()
             .ok_or_else(|| AppError::Transcribe("engine not loaded".to_string()))?;
-        let threads = std::thread::available_parallelism()
-            .map(|n| n.get() as i32)
+        let logical = std::thread::available_parallelism()
+            .map(|n| n.get())
             .unwrap_or(4);
+        let cap = if engine.on_gpu { 4 } else { 6 };
+        let threads = (logical / 2).max(1).min(cap) as i32;
         let prompt = self.vocabulary_prompt();
-        let text = engine.transcribe(samples, language, threads, prompt.as_deref())?;
+        let text = engine.transcribe(
+            samples,
+            language,
+            threads,
+            prompt.as_deref(),
+            translate,
+            self.cancel.clone(),
+        )?;
         Ok((text, engine.on_gpu))
     }
 

@@ -52,6 +52,16 @@ export interface StatusPayload {
   error: string | null;
 }
 
+export type HwTier = "weak" | "modest" | "capable";
+
+export interface HardwareInfo {
+  total_ram_mb: number;
+  logical_cores: number;
+  build_gpu: boolean;
+  os: string;
+  tier: HwTier;
+}
+
 export interface HistoryEntry {
   id: number;
   created_at: number;

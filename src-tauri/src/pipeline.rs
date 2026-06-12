@@ -26,6 +26,7 @@ pub fn begin_recording(state: &SharedState) {
     if state.recording.swap(true, Ordering::AcqRel) {
         return;
     }
+    state.cancel.store(false, Ordering::Release);
     let not_ready = {
         let meta = state.engine_meta.read();
         if meta.ready {
@@ -57,11 +58,11 @@ pub fn begin_recording(state: &SharedState) {
 }
 
 pub fn cancel_recording(state: &SharedState) {
-    if !state.recording.swap(false, Ordering::AcqRel) {
-        return;
+    state.cancel.store(true, Ordering::Release);
+    if state.recording.swap(false, Ordering::AcqRel) {
+        let _ = state.audio.stop();
+        state.set_status(Status::Idle);
     }
-    let _ = state.audio.stop();
-    state.set_status(Status::Idle);
 }
 
 pub fn finish_recording(app: AppHandle, state: SharedState) {
@@ -116,6 +117,7 @@ async fn run_pipeline(
     let settings = state.settings_snapshot();
     let duration_ms = captured.duration_ms;
     let language = settings.language_code();
+    let whisper_translated = settings.whisper_translate();
 
     let blocking_state = state.clone();
     let lang_for_blocking = language.clone();
@@ -130,7 +132,7 @@ async fn run_pipeline(
             peak,
             trimmed.len()
         );
-        blocking_state.transcribe_blocking(&trimmed, lang_for_blocking.as_deref())
+        blocking_state.transcribe_blocking(&trimmed, lang_for_blocking.as_deref(), whisper_translated)
     })
     .await;
 
@@ -151,6 +153,11 @@ async fn run_pipeline(
 
     tracing::info!("whisper returned {} chars", raw.len());
 
+    if state.cancel.load(Ordering::Acquire) {
+        let _ = app.emit("transcription-cancelled", ());
+        return Ok(());
+    }
+
     if raw.trim().is_empty() {
         let _ = app.emit("transcription-empty", ());
         return Ok(());
@@ -165,13 +172,25 @@ async fn run_pipeline(
 
     let local_not_ready = settings.llm_backend == crate::config::LlmBackend::Local
         && !state.sidecar_ready.load(Ordering::Acquire);
-    let want_llm = settings.llm_enabled || settings.translation_enabled;
+    let want_llm = settings.llm_enabled || (settings.translation_enabled && !whisper_translated);
     let final_text = if want_llm && !local_not_ready {
-        state.llm.cleanup(&settings, &processed).await
+        let eff: std::borrow::Cow<'_, crate::config::Settings> = if whisper_translated {
+            let mut tuned = settings.clone();
+            tuned.translation_enabled = false;
+            std::borrow::Cow::Owned(tuned)
+        } else {
+            std::borrow::Cow::Borrowed(&settings)
+        };
+        state.llm.cleanup(&*eff, &processed).await
     } else {
         processed.clone()
     };
     let llm_used = final_text != processed;
+
+    if state.cancel.load(Ordering::Acquire) {
+        let _ = app.emit("transcription-cancelled", ());
+        return Ok(());
+    }
 
     let inject_text = final_text.clone();
     let restore = settings.restore_clipboard;

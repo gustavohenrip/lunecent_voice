@@ -11,6 +11,8 @@
     HfFile,
     LlamaSetupProgress,
     LlamaStatus,
+    HardwareInfo,
+    StatusPayload,
   } from "../lib/types";
   import Icon from "../lib/Icon.svelte";
   import { getTheme, setTheme, type ThemeMode } from "../lib/theme";
@@ -32,6 +34,27 @@
   let fillerText = $state("");
   let vocabText = $state("");
   let themeMode = $state<ThemeMode>(getTheme());
+  let hw = $state<HardwareInfo | null>(null);
+  let runtimeStatus = $state<StatusPayload | null>(null);
+
+  const noAccel = $derived(
+    !hw?.build_gpu || (!!runtimeStatus?.engine_ready && !!runtimeStatus?.cpu_mode),
+  );
+  const weakHw = $derived(hw?.tier === "weak");
+  const modestHw = $derived(hw?.tier === "modest");
+  const heavyWhisper = $derived(
+    !!settings &&
+      settings.whisper_model.startsWith("large-v3") &&
+      !settings.whisper_model.includes("turbo"),
+  );
+  const warnWhisper = $derived(
+    !!settings &&
+      ((heavyWhisper && (weakHw || noAccel)) ||
+        (settings.whisper_model.includes("turbo") && weakHw && noAccel)),
+  );
+  const warnLlm = $derived(
+    !!settings && settings.llm_enabled && (weakHw || (modestHw && noAccel)),
+  );
 
   let modelTab = $state<ModelKind>("whisper");
   let hfUrl = $state("");
@@ -118,6 +141,8 @@
       }
     }
     api.listAudioDevices().then((d) => (devices = d)).catch(() => {});
+    api.hardwareInfo().then((h) => (hw = h)).catch(() => {});
+    api.getStatus().then((s) => (runtimeStatus = s)).catch(() => {});
     refreshModels();
     refreshLlamaStatus();
   }
@@ -636,11 +661,29 @@
                       {/each}
                     </select>
                   </div>
+                  {#if warnWhisper}
+                    <div class="cue warn">
+                      <Icon name="warning-circle" size={16} />
+                      <span>
+                        {#if heavyWhisper}
+                          This machine is weak for this model. Without a GPU, large-v3 (about 3 GB) can be
+                          very slow or freeze on every dictation. Reason: transcription on CPU is heavy.
+                          Suggestion: use large-v3-turbo or medium.
+                        {:else}
+                          No GPU detected and low memory. Expect some delay on every dictation. Reason: the
+                          model runs on the CPU. If it freezes, switch to the medium model.
+                        {/if}
+                      </span>
+                    </div>
+                  {/if}
                   <label class="switch">
                     <input type="checkbox" bind:checked={settings.prefer_gpu} />
                     <span class="track"><span class="thumb"></span></span>
                     <span>{isMac ? "Use GPU (Metal) when available" : "Use GPU (CUDA) when available"}</span>
                   </label>
+                  {#if hw && !hw.build_gpu}
+                    <p class="hint">This build was compiled without GPU support; this option has no effect.</p>
+                  {/if}
                   <div class="row">
                     <button class="btn" onclick={() => api.reloadEngine()}>Reload voice model</button>
                   </div>
@@ -655,6 +698,16 @@
                     <span class="track"><span class="thumb"></span></span>
                     <span>Correct speech with AI (rewrites the text as you meant it)</span>
                   </label>
+                  {#if warnLlm}
+                    <div class="cue warn">
+                      <Icon name="warning-circle" size={16} />
+                      <span>
+                        AI correction is heavy. On this machine it can make every dictation much slower or
+                        freeze. Reason: the AI model runs on the CPU and uses a lot of memory. On weak
+                        hardware we recommend keeping it off and enabling it only when needed.
+                      </span>
+                    </div>
+                  {/if}
                   <div class="field">
                     <label for="bk">Backend</label>
                     <select id="bk" bind:value={settings.llm_backend}>
@@ -881,6 +934,11 @@
                       <option value="Korean">Korean</option>
                     </select>
                   </div>
+                  {#if settings.translation_target.trim().toLowerCase() === "english"}
+                    <p class="hint">English is the fastest: translation is done by Whisper itself, without using the AI.</p>
+                  {:else}
+                    <p class="hint">Targets other than English use the local AI to translate, which is slower on weak machines.</p>
+                  {/if}
                 {/if}
               </div>
             {/if}
@@ -1331,6 +1389,12 @@
 
   .cue.ok {
     color: var(--sage-text);
+  }
+
+  .cue.warn {
+    color: var(--terra-text);
+    border-color: var(--terra-line);
+    background: var(--terra-soft);
   }
 
   .cue :global(.ph) {

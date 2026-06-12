@@ -5,6 +5,7 @@ mod config;
 mod custom_models;
 mod dictionary;
 mod error;
+mod hardware;
 mod hf;
 mod history;
 mod hotkey;
@@ -88,6 +89,7 @@ pub fn run() {
             commands::delete_model,
             commands::setup_llama_auto,
             commands::llama_status,
+            hardware::hardware_info,
             hf::hf_detect,
             hf::hf_list_files
         ])
@@ -148,6 +150,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         recording: AtomicBool::new(false),
         busy: AtomicBool::new(false),
         sidecar_ready: AtomicBool::new(false),
+        cancel: Arc::new(AtomicBool::new(false)),
         downloading: Mutex::new(std::collections::HashSet::new()),
     });
 

@@ -25,6 +25,37 @@
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
   let dockSide = $state<"left" | "right">("right");
   let hovered = $state(false);
+  let elapsed = $state(0);
+  let procStart = 0;
+  let procTimer: ReturnType<typeof setInterval> | undefined;
+
+  $effect(() => {
+    if (status.status === "processing") {
+      if (!procTimer) {
+        procStart = Date.now();
+        elapsed = 0;
+        procTimer = setInterval(() => {
+          elapsed = Math.floor((Date.now() - procStart) / 1000);
+        }, 250);
+      }
+    } else if (procTimer) {
+      clearInterval(procTimer);
+      procTimer = undefined;
+      elapsed = 0;
+    }
+    return () => {
+      if (procTimer) {
+        clearInterval(procTimer);
+        procTimer = undefined;
+      }
+    };
+  });
+
+  const procLabel = $derived.by(() => {
+    if (elapsed >= 20) return `Taking long (${elapsed}s) — click to cancel`;
+    if (elapsed >= 1) return `Transcribing ${elapsed}s`;
+    return "Transcribing…";
+  });
 
   const idleText = $derived.by(() => {
     if (!status.audio_available) return "No microphone";
@@ -107,6 +138,9 @@
         unlisten.push(
           await on("transcription-empty", () => showFlash("No speech detected", "err")),
         );
+        unlisten.push(
+          await on("transcription-cancelled", () => showFlash("Cancelled", "err")),
+        );
       } catch (_) {}
     })();
     return () => {
@@ -118,6 +152,10 @@
 
   function toggle() {
     api.toggleRecording().catch(() => {});
+  }
+
+  function cancelProcessing() {
+    api.cancelRecording().catch(() => {});
   }
 </script>
 
@@ -164,7 +202,7 @@
       {:else if flash}
         <span class="flash" class:err={flash.kind === "err"}>{flash.text}</span>
       {:else if status.status === "processing"}
-        <span class="brand shimmer">Transcribing…</span>
+        <button class="brand shimmer proc" class:slow={elapsed >= 20} onclick={cancelProcessing} title="Cancel transcription">{procLabel}</button>
       {:else}
         <span class="brand" class:dim={!status.engine_ready || !status.audio_available}>
           {idleText}
@@ -387,6 +425,22 @@
     background-clip: text;
     color: transparent;
     animation: shimmer 1.6s linear infinite;
+  }
+
+  .brand.proc {
+    pointer-events: auto;
+    cursor: pointer;
+    background-color: transparent;
+    border: 0;
+    padding: 0;
+  }
+
+  .brand.proc.slow {
+    animation: none;
+    background: none;
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    color: var(--terra);
   }
 
   @keyframes shimmer {
