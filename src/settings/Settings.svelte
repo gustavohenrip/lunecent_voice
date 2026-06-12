@@ -42,15 +42,25 @@
   );
   const weakHw = $derived(hw?.tier === "weak");
   const modestHw = $derived(hw?.tier === "modest");
+  const lightWhisper = $derived(
+    !!settings &&
+      (settings.whisper_model.includes("q5") ||
+        settings.whisper_model === "small" ||
+        settings.whisper_model === "base"),
+  );
   const heavyWhisper = $derived(
     !!settings &&
       settings.whisper_model.startsWith("large-v3") &&
-      !settings.whisper_model.includes("turbo"),
+      !settings.whisper_model.includes("turbo") &&
+      !settings.whisper_model.includes("q5"),
+  );
+  const midWhisper = $derived(
+    !!settings &&
+      (settings.whisper_model === "large-v3-turbo" || settings.whisper_model === "medium"),
   );
   const warnWhisper = $derived(
-    !!settings &&
-      ((heavyWhisper && (weakHw || noAccel)) ||
-        (settings.whisper_model.includes("turbo") && weakHw && noAccel)),
+    !lightWhisper &&
+      ((heavyWhisper && (weakHw || noAccel)) || (midWhisper && weakHw && noAccel)),
   );
   const warnLlm = $derived(
     !!settings && settings.llm_enabled && (weakHw || (modestHw && noAccel)),
@@ -654,8 +664,12 @@
                     <label for="wm">Whisper model</label>
                     <select id="wm" bind:value={settings.whisper_model}>
                       <option value="large-v3-turbo">large-v3-turbo (recommended)</option>
+                      <option value="large-v3-turbo-q5">large-v3-turbo Q5 (light, best for CPU)</option>
                       <option value="large-v3">large-v3 (maximum accuracy)</option>
-                      <option value="medium">medium (lighter)</option>
+                      <option value="medium">medium</option>
+                      <option value="medium-q5">medium Q5 (light)</option>
+                      <option value="small">small (fast, good quality)</option>
+                      <option value="base">base (very fast, light)</option>
                       {#each customWhisper as m}
                         <option value={m.info.id}>{m.info.label}</option>
                       {/each}
@@ -668,10 +682,11 @@
                         {#if heavyWhisper}
                           This machine is weak for this model. Without a GPU, large-v3 (about 3 GB) can be
                           very slow or freeze on every dictation. Reason: transcription on CPU is heavy.
-                          Suggestion: use large-v3-turbo or medium.
+                          Suggestion: use large-v3-turbo Q5 (light), small or base.
                         {:else}
                           No GPU detected and low memory. Expect some delay on every dictation. Reason: the
-                          model runs on the CPU. If it freezes, switch to the medium model.
+                          model runs on the CPU. For a faster, lighter option with good quality, switch to
+                          large-v3-turbo Q5, small or base.
                         {/if}
                       </span>
                     </div>

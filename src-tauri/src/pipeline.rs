@@ -23,7 +23,14 @@ struct PipelineError {
 }
 
 pub fn begin_recording(state: &SharedState) {
+    if state.busy.load(Ordering::Acquire) {
+        return;
+    }
     if state.recording.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    if state.busy.load(Ordering::Acquire) {
+        state.recording.store(false, Ordering::Release);
         return;
     }
     state.cancel.store(false, Ordering::Release);
@@ -104,6 +111,8 @@ pub fn finish_recording(app: AppHandle, state: SharedState) {
 pub fn toggle_recording(app: AppHandle, state: SharedState) {
     if state.recording.load(Ordering::Acquire) {
         finish_recording(app, state);
+    } else if state.busy.load(Ordering::Acquire) {
+        cancel_recording(&state);
     } else {
         begin_recording(&state);
     }

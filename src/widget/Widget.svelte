@@ -52,7 +52,7 @@
   });
 
   const procLabel = $derived.by(() => {
-    if (elapsed >= 20) return `Taking long (${elapsed}s) — click to cancel`;
+    if (elapsed >= 20) return `Taking long ${elapsed}s`;
     if (elapsed >= 1) return `Transcribing ${elapsed}s`;
     return "Transcribing…";
   });
@@ -157,6 +157,11 @@
   function cancelProcessing() {
     api.cancelRecording().catch(() => {});
   }
+
+  function handleSeal() {
+    if (status.status === "processing") cancelProcessing();
+    else toggle();
+  }
 </script>
 
 {#snippet dockButtons()}
@@ -185,8 +190,12 @@
     <button
       class="seal"
       data-state={status.status}
-      onclick={toggle}
-      aria-label={status.status === "recording" ? "Stop recording" : "Start recording"}
+      onclick={handleSeal}
+      aria-label={status.status === "recording"
+        ? "Stop recording"
+        : status.status === "processing"
+          ? "Cancel transcription"
+          : "Start recording"}
     >
       <span class="core"></span>
       <span class="halo"></span>
@@ -202,7 +211,12 @@
       {:else if flash}
         <span class="flash" class:err={flash.kind === "err"}>{flash.text}</span>
       {:else if status.status === "processing"}
-        <button class="brand shimmer proc" class:slow={elapsed >= 20} onclick={cancelProcessing} title="Cancel transcription">{procLabel}</button>
+        <div class="proc-row">
+          <span class="brand shimmer proc-text" class:slow={elapsed >= 20}>{procLabel}</span>
+          <button class="proc-cancel" onclick={cancelProcessing} aria-label="Cancel transcription" title="Cancel transcription">
+            <Icon name="x" size={11} />
+          </button>
+        </div>
       {:else}
         <span class="brand" class:dim={!status.engine_ready || !status.audio_available}>
           {idleText}
@@ -427,20 +441,46 @@
     animation: shimmer 1.6s linear infinite;
   }
 
-  .brand.proc {
-    pointer-events: auto;
-    cursor: pointer;
-    background-color: transparent;
-    border: 0;
-    padding: 0;
+  .proc-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
   }
 
-  .brand.proc.slow {
+  .proc-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .proc-text.slow {
     animation: none;
     background: none;
     -webkit-background-clip: border-box;
     background-clip: border-box;
     color: var(--terra);
+  }
+
+  .proc-cancel {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--terra-soft);
+    color: var(--terra-text);
+    border: 1px solid var(--terra-line);
+    pointer-events: auto;
+    cursor: pointer;
+    transition: background 0.18s ease;
+  }
+
+  .proc-cancel:hover {
+    background: var(--terra);
+    color: #fff;
   }
 
   @keyframes shimmer {
