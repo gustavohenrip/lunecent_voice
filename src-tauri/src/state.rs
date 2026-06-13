@@ -9,7 +9,7 @@ use crate::{history, models};
 use parking_lot::{Mutex, RwLock};
 use serde::Serialize;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 
@@ -66,6 +66,11 @@ pub struct AppState {
     pub sidecar_ready: AtomicBool,
     pub sidecar_settled: AtomicBool,
     pub downloading: Mutex<std::collections::HashSet<String>>,
+    pub widget_pos_path: PathBuf,
+    pub widget_x: AtomicI32,
+    pub widget_y: AtomicI32,
+    pub widget_move_gen: AtomicU64,
+    pub widget_ready: AtomicBool,
 }
 
 impl AppState {

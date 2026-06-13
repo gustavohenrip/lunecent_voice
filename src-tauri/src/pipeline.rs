@@ -295,7 +295,7 @@ async fn run_pipeline(
     }
     let local_not_ready = settings.llm_backend == crate::config::LlmBackend::Local
         && !state.sidecar_ready.load(Ordering::Acquire);
-    let final_text = if want_llm && !local_not_ready {
+    let (final_text, llm_used, llm_error) = if want_llm && !local_not_ready {
         let eff: std::borrow::Cow<'_, crate::config::Settings> = if whisper_translated {
             let mut tuned = settings.clone();
             tuned.translation_enabled = false;
@@ -306,7 +306,7 @@ async fn run_pipeline(
         let llm_start = std::time::Instant::now();
         let cleanup = state.llm.cleanup(&*eff, &processed);
         tokio::pin!(cleanup);
-        let text = loop {
+        let outcome = loop {
             tokio::select! {
                 out = &mut cleanup => break out,
                 _ = tokio::time::sleep(std::time::Duration::from_millis(120)) => {
@@ -318,14 +318,19 @@ async fn run_pipeline(
             }
         };
         tracing::info!("llm cleanup took {} ms", llm_start.elapsed().as_millis());
-        text
+        (outcome.text, outcome.applied, outcome.error)
+    } else if want_llm && local_not_ready {
+        tracing::info!("llm skipped: local server not ready");
+        (
+            processed.clone(),
+            false,
+            Some(
+                "AI Correction is set to Local but the local AI server is not running. Switch the AI Correction backend to Groq in Settings, or install a local model.".to_string(),
+            ),
+        )
     } else {
-        if want_llm && local_not_ready {
-            tracing::info!("llm skipped: local server not ready");
-        }
-        processed.clone()
+        (processed.clone(), false, None)
     };
-    let llm_used = final_text != processed;
 
     if CANCEL.load(Ordering::Acquire) {
         let _ = app.emit("transcription-cancelled", ());
@@ -379,6 +384,21 @@ async fn run_pipeline(
             llm_used,
         },
     );
+
+    if let Some(message) = llm_error {
+        let stage = if settings.translation_enabled && !whisper_translated {
+            "translation"
+        } else {
+            "ai"
+        };
+        let _ = app.emit(
+            "pipeline-error",
+            PipelineError {
+                stage: stage.to_string(),
+                message,
+            },
+        );
+    }
 
     Ok(())
 }

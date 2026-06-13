@@ -23,6 +23,7 @@ pub enum LlmBackend {
     OpenAiCompatible,
     Anthropic,
     Ollama,
+    Groq,
 }
 
 impl Default for LlmBackend {
@@ -55,6 +56,8 @@ pub struct Settings {
     pub transcription_backend: TranscriptionBackend,
     pub groq_api_key: String,
     pub groq_model: String,
+    pub groq_llm_model: String,
+    pub groq_reuse_transcription_key: bool,
     pub audio_device: Option<String>,
     pub vad_enabled: bool,
     pub vad_threshold: f32,
@@ -65,6 +68,7 @@ pub struct Settings {
     pub dictionary: BTreeMap<String, String>,
     pub vocabulary: Vec<String>,
     pub llm_enabled: bool,
+    pub llm_format_paragraphs: bool,
     pub translation_enabled: bool,
     pub translation_target: String,
     pub llm_backend: LlmBackend,
@@ -92,6 +96,8 @@ impl Default for Settings {
             transcription_backend: TranscriptionBackend::Local,
             groq_api_key: String::new(),
             groq_model: "whisper-large-v3-turbo".to_string(),
+            groq_llm_model: "llama-3.1-8b-instant".to_string(),
+            groq_reuse_transcription_key: true,
             audio_device: None,
             vad_enabled: true,
             vad_threshold: 0.5,
@@ -102,6 +108,7 @@ impl Default for Settings {
             dictionary: BTreeMap::new(),
             vocabulary: Vec::new(),
             llm_enabled: true,
+            llm_format_paragraphs: false,
             translation_enabled: false,
             translation_target: "English".to_string(),
             llm_backend: LlmBackend::Local,
@@ -129,33 +136,75 @@ fn default_fillers() -> Vec<String> {
     .collect()
 }
 
-impl Settings {
-    pub fn load(path: &Path) -> Settings {
+pub enum LoadOutcome {
+    Loaded(Box<Settings>),
+    Missing,
+    Corrupt,
+}
+
+enum ReadResult {
+    Parsed(Box<Settings>),
+    Missing,
+    Bad(String),
+}
+
+fn read_and_parse(path: &Path) -> ReadResult {
+    let mut last = String::new();
+    for attempt in 0..4 {
         match std::fs::read_to_string(path) {
-            Ok(content) => match serde_json::from_str::<Settings>(&content) {
-                Ok(settings) => settings,
-                Err(err) => {
-                    tracing::warn!("settings parse failed ({err}); using defaults");
-                    let _ = backup_corrupt(path);
-                    Settings::default()
+            Ok(content) => {
+                if content.trim().is_empty() {
+                    last = content;
+                } else {
+                    match serde_json::from_str::<Settings>(&content) {
+                        Ok(settings) => return ReadResult::Parsed(Box::new(settings)),
+                        Err(err) => {
+                            tracing::warn!("settings parse failed (attempt {attempt}): {err}");
+                            last = content;
+                        }
+                    }
+                }
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return ReadResult::Missing,
+            Err(err) => tracing::warn!("settings read failed (attempt {attempt}): {err}"),
+        }
+        if attempt < 3 {
+            std::thread::sleep(std::time::Duration::from_millis(40));
+        }
+    }
+    ReadResult::Bad(last)
+}
+
+impl Settings {
+    pub fn load(path: &Path) -> LoadOutcome {
+        match read_and_parse(path) {
+            ReadResult::Parsed(settings) => LoadOutcome::Loaded(settings),
+            ReadResult::Missing => match read_and_parse(&bak_path(path)) {
+                ReadResult::Parsed(settings) => {
+                    tracing::warn!("settings.json missing; recovered from settings.bak");
+                    LoadOutcome::Loaded(settings)
+                }
+                _ => LoadOutcome::Missing,
+            },
+            ReadResult::Bad(content) => match read_and_parse(&bak_path(path)) {
+                ReadResult::Parsed(settings) => {
+                    tracing::warn!("settings.json unreadable; recovered from settings.bak");
+                    LoadOutcome::Loaded(settings)
+                }
+                _ => {
+                    backup_corrupt(path, &content);
+                    LoadOutcome::Corrupt
                 }
             },
-            Err(_) => Settings::default(),
         }
     }
 
     pub fn save(&self, path: &Path) -> AppResult<()> {
-        static SAVE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
         let json = serde_json::to_string_pretty(self)?;
-        let seq = SAVE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let tmp = path.with_extension(format!("json.tmp-{}-{seq}", std::process::id()));
-        std::fs::write(&tmp, json.as_bytes())?;
-        if let Err(err) = std::fs::rename(&tmp, path) {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(AppError::Config(err.to_string()));
+        crate::atomic_io::write_durable(path, json.as_bytes())
+            .map_err(|err| AppError::Config(err.to_string()))?;
+        if let Err(err) = crate::atomic_io::write_durable(&bak_path(path), json.as_bytes()) {
+            tracing::warn!("settings.bak write failed: {err}");
         }
         Ok(())
     }
@@ -172,10 +221,93 @@ impl Settings {
     }
 }
 
-fn backup_corrupt(path: &Path) -> AppResult<()> {
-    if path.exists() {
-        let backup = path.with_extension("json.corrupt");
-        std::fs::copy(path, backup)?;
+fn bak_path(path: &Path) -> std::path::PathBuf {
+    path.with_extension("bak")
+}
+
+fn backup_corrupt(path: &Path, content: &str) {
+    if content.is_empty() {
+        return;
     }
-    Ok(())
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let backup = path.with_extension(format!("corrupt-{stamp}.json"));
+    if let Err(err) = std::fs::write(&backup, content) {
+        tracing::warn!("failed to save corrupt settings backup: {err}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static N: AtomicU64 = AtomicU64::new(0);
+
+    fn tmp_path() -> std::path::PathBuf {
+        let n = N.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!("lunecent_cfg_{}_{n}.json", std::process::id()))
+    }
+
+    fn cleanup(p: &Path) {
+        let _ = std::fs::remove_file(p);
+        let _ = std::fs::remove_file(bak_path(p));
+    }
+
+    #[test]
+    fn save_then_load_roundtrip() {
+        let p = tmp_path();
+        let mut s = Settings::default();
+        s.groq_api_key = "gsk_test".to_string();
+        s.llm_format_paragraphs = true;
+        s.save(&p).unwrap();
+        match Settings::load(&p) {
+            LoadOutcome::Loaded(loaded) => {
+                assert_eq!(loaded.groq_api_key, "gsk_test");
+                assert!(loaded.llm_format_paragraphs);
+            }
+            _ => panic!("expected Loaded"),
+        }
+        cleanup(&p);
+    }
+
+    #[test]
+    fn missing_file_is_missing() {
+        let p = tmp_path();
+        assert!(matches!(Settings::load(&p), LoadOutcome::Missing));
+    }
+
+    #[test]
+    fn corrupt_without_backup_preserves_original() {
+        let p = tmp_path();
+        std::fs::write(&p, b"{ not valid json ").unwrap();
+        assert!(matches!(Settings::load(&p), LoadOutcome::Corrupt));
+        let still = std::fs::read_to_string(&p).unwrap();
+        assert!(still.contains("not valid"));
+        cleanup(&p);
+    }
+
+    #[test]
+    fn corrupt_primary_recovers_from_backup() {
+        let p = tmp_path();
+        let mut s = Settings::default();
+        s.groq_api_key = "from_bak".to_string();
+        s.save(&p).unwrap();
+        std::fs::write(&p, b"garbage").unwrap();
+        match Settings::load(&p) {
+            LoadOutcome::Loaded(loaded) => assert_eq!(loaded.groq_api_key, "from_bak"),
+            _ => panic!("expected recovery from settings.bak"),
+        }
+        cleanup(&p);
+    }
+
+    #[test]
+    fn empty_file_is_corrupt_not_missing() {
+        let p = tmp_path();
+        std::fs::write(&p, b"").unwrap();
+        assert!(matches!(Settings::load(&p), LoadOutcome::Corrupt));
+        cleanup(&p);
+    }
 }

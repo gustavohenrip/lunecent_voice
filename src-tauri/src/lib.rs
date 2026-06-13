@@ -1,3 +1,4 @@
+mod atomic_io;
 mod audio;
 mod cleanup;
 mod commands;
@@ -25,14 +26,15 @@ mod state;
 mod transcribe;
 mod tray;
 mod vad;
+mod widget_pos;
 
 use crate::audio::AudioEngine;
 use crate::cleanup::LlmClient;
-use crate::config::Settings;
+use crate::config::{LoadOutcome, Settings};
 use crate::state::{AppState, EngineMeta, SharedState, Status};
 use parking_lot::{Mutex, RwLock};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::{Emitter, Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
@@ -59,11 +61,21 @@ pub fn run() {
             }
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
+        .on_window_event(|window, event| match event {
+            WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
                 let _ = window.hide();
             }
+            WindowEvent::Moved(pos) => {
+                if window.label() == "widget" {
+                    if let Some(state) = window.app_handle().try_state::<SharedState>() {
+                        if state.widget_ready.load(Ordering::Acquire) {
+                            widget_pos::record_move(&state, pos.x, pos.y);
+                        }
+                    }
+                }
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_status,
@@ -95,8 +107,18 @@ pub fn run() {
             hf::hf_detect,
             hf::hf_list_files
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Lunecent Voice");
+        .build(tauri::generate_context!())
+        .expect("error while running Lunecent Voice")
+        .run(|handle, event| {
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
+                if let Some(state) = handle.try_state::<SharedState>() {
+                    widget_pos::flush(&state);
+                }
+            }
+        });
 }
 
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -118,11 +140,27 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .resource_dir()
         .unwrap_or_else(|_| PathBuf::from("."));
     let config_path = config_dir.join("settings.json");
+    let widget_pos_path = config_dir.join("widget.json");
+    let (widget_x, widget_y) = widget_pos::load(&widget_pos_path).unwrap_or((0, 0));
     let custom_models_path = config_dir.join("custom_models.json");
     let custom_store = custom_models::CustomStore::load(&custom_models_path);
 
-    let settings = Settings::load(&config_path);
-    let _ = settings.save(&config_path);
+    let settings = match Settings::load(&config_path) {
+        LoadOutcome::Loaded(settings) => *settings,
+        LoadOutcome::Missing => {
+            let settings = Settings::default();
+            if let Err(err) = settings.save(&config_path) {
+                tracing::warn!("failed to write initial settings: {err}");
+            }
+            settings
+        }
+        LoadOutcome::Corrupt => {
+            tracing::error!(
+                "settings.json unreadable and no usable backup; running on in-memory defaults WITHOUT overwriting disk (a timestamped .corrupt copy was saved)"
+            );
+            Settings::default()
+        }
+    };
 
     prepend_dll_dirs(&resource_dir);
 
@@ -154,6 +192,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         sidecar_ready: AtomicBool::new(false),
         sidecar_settled: AtomicBool::new(false),
         downloading: Mutex::new(std::collections::HashSet::new()),
+        widget_pos_path,
+        widget_x: AtomicI32::new(widget_x),
+        widget_y: AtomicI32::new(widget_y),
+        widget_move_gen: AtomicU64::new(0),
+        widget_ready: AtomicBool::new(false),
     });
 
     app.manage(state.clone());
@@ -166,6 +209,12 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     tray::build(&handle)?;
     position_widget(&handle);
+
+    let ready_state = state.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        ready_state.widget_ready.store(true, Ordering::Release);
+    });
 
     #[cfg(windows)]
     round_window_corners(&handle);
@@ -222,6 +271,14 @@ fn show_window(app: &tauri::AppHandle, label: &str) {
 
 fn position_widget(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("widget") {
+        if let Some(state) = app.try_state::<SharedState>() {
+            if let Some((x, y)) = widget_pos::load(&state.widget_pos_path) {
+                if let Some((cx, cy)) = clamp_into_view(&window, x, y) {
+                    let _ = window.set_position(tauri::PhysicalPosition { x: cx, y: cy });
+                    return;
+                }
+            }
+        }
         if let Ok(Some(monitor)) = window.current_monitor() {
             let monitor_size = monitor.size();
             let monitor_pos = monitor.position();
@@ -231,17 +288,77 @@ fn position_widget(app: &tauri::AppHandle) {
                 height: (40.0 * scale) as u32,
             });
             let margin = (24.0 * scale) as i32;
-            #[cfg(target_os = "macos")]
-            let reserve = 88.0;
-            #[cfg(not(target_os = "macos"))]
-            let reserve = 64.0;
-            let taskbar = (reserve * scale) as i32;
+            let taskbar = (taskbar_reserve() * scale) as i32;
             let x = monitor_pos.x + monitor_size.width as i32 - widget_size.width as i32 - margin;
             let y =
                 monitor_pos.y + monitor_size.height as i32 - widget_size.height as i32 - taskbar;
             let _ = window.set_position(tauri::PhysicalPosition { x, y });
         }
     }
+}
+
+fn taskbar_reserve() -> f64 {
+    #[cfg(target_os = "macos")]
+    {
+        88.0
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        64.0
+    }
+}
+
+fn widget_size(window: &tauri::WebviewWindow) -> (i32, i32) {
+    let size = window.outer_size().unwrap_or(tauri::PhysicalSize {
+        width: 268,
+        height: 40,
+    });
+    (size.width as i32, size.height as i32)
+}
+
+fn clamp_into_view(window: &tauri::WebviewWindow, x: i32, y: i32) -> Option<(i32, i32)> {
+    let (w, h) = widget_size(window);
+    let monitors = window.available_monitors().ok()?;
+    if monitors.is_empty() {
+        return None;
+    }
+
+    let mut best_idx = None;
+    let mut best_score = i64::MIN;
+    for (i, monitor) in monitors.iter().enumerate() {
+        let pos = monitor.position();
+        let dim = monitor.size();
+        let left = pos.x;
+        let top = pos.y;
+        let right = pos.x + dim.width as i32;
+        let bottom = pos.y + dim.height as i32;
+        let overlap_w = ((x + w).min(right) - x.max(left)).max(0) as i64;
+        let overlap_h = ((y + h).min(bottom) - y.max(top)).max(0) as i64;
+        let overlap = overlap_w * overlap_h;
+        let score = if overlap > 0 {
+            overlap
+        } else {
+            let dx = ((x + w / 2) - (left + right) / 2) as i64;
+            let dy = ((y + h / 2) - (top + bottom) / 2) as i64;
+            -(dx * dx + dy * dy)
+        };
+        if score > best_score {
+            best_score = score;
+            best_idx = Some(i);
+        }
+    }
+
+    let monitor = &monitors[best_idx?];
+    let pos = monitor.position();
+    let dim = monitor.size();
+    let scale = monitor.scale_factor();
+    let margin = (24.0 * scale) as i32;
+    let taskbar = (taskbar_reserve() * scale) as i32;
+    let min_x = pos.x + margin;
+    let max_x = (pos.x + dim.width as i32 - w - margin).max(min_x);
+    let min_y = pos.y + margin;
+    let max_y = (pos.y + dim.height as i32 - h - taskbar).max(min_y);
+    Some((x.clamp(min_x, max_x), y.clamp(min_y, max_y)))
 }
 
 fn resolve_base_dir(handle: &tauri::AppHandle) -> PathBuf {

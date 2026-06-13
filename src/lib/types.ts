@@ -1,6 +1,6 @@
 export type RecordMode = "push_to_talk" | "toggle";
 
-export type LlmBackend = "local" | "open_ai_compatible" | "anthropic" | "ollama";
+export type LlmBackend = "local" | "open_ai_compatible" | "anthropic" | "ollama" | "groq";
 
 export type TranscriptionBackend = "local" | "groq";
 
@@ -20,6 +20,8 @@ export interface Settings {
   transcription_backend: TranscriptionBackend;
   groq_api_key: string;
   groq_model: string;
+  groq_llm_model: string;
+  groq_reuse_transcription_key: boolean;
   audio_device: string | null;
   vad_enabled: boolean;
   vad_threshold: number;
@@ -30,6 +32,7 @@ export interface Settings {
   dictionary: Record<string, string>;
   vocabulary: string[];
   llm_enabled: boolean;
+  llm_format_paragraphs: boolean;
   translation_enabled: boolean;
   translation_target: string;
   llm_backend: LlmBackend;

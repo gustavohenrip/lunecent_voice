@@ -40,6 +40,77 @@
   let showGroqKey = $state(false);
   let groqKeyCopied = $state(false);
   let groqCopyTimer: ReturnType<typeof setTimeout> | undefined;
+  let showGroqLlmKey = $state(false);
+
+  const GROQ_LLM_MODELS: {
+    id: string;
+    label: string;
+    badges: string[];
+    blurb: string;
+    good: string;
+    bad: string;
+  }[] = [
+    {
+      id: "llama-3.1-8b-instant",
+      label: "Llama 3.1 8B Instant",
+      badges: ["Fast", "Light"],
+      blurb: "Best default for everyday dictation. Near-instant grammar and punctuation cleanup.",
+      good: "Lowest latency and the most generous daily limits (14.4K requests/day).",
+      bad: "Less precise on complex translation or long, structured text.",
+    },
+    {
+      id: "llama-3.3-70b-versatile",
+      label: "Llama 3.3 70B Versatile",
+      badges: ["Strong", "Accurate"],
+      blurb: "The most capable general model. Best overall correction and translation quality.",
+      good: "Excellent grammar, nuance and multilingual translation.",
+      bad: "Slower and tighter limits (1K requests/day, 12K tokens/min).",
+    },
+    {
+      id: "qwen/qwen3-32b",
+      label: "Qwen 3 32B",
+      badges: ["Reasoning", "Multilingual"],
+      blurb: "Strong multilingual reasoning model. Great for translation into Asian languages.",
+      good: "Excellent on Chinese, Japanese and structured reasoning.",
+      bad: "Emits thinking tokens, so it is slower; 1K requests/day.",
+    },
+    {
+      id: "openai/gpt-oss-120b",
+      label: "GPT-OSS 120B",
+      badges: ["Reasoning", "Heavy"],
+      blurb: "Large reasoning model. Highest quality on hard, ambiguous text.",
+      good: "Top accuracy on tricky grammar and ambiguous phrasing.",
+      bad: "Slower (spends tokens thinking) and low daily limit (1K requests/day).",
+    },
+    {
+      id: "openai/gpt-oss-20b",
+      label: "GPT-OSS 20B",
+      badges: ["Reasoning", "Balanced"],
+      blurb: "Smaller reasoning model. Good quality with less latency than the 120B.",
+      good: "Solid accuracy, lighter and faster than the 120B.",
+      bad: "Still a reasoning model, slower than instant models; 1K requests/day.",
+    },
+    {
+      id: "meta-llama/llama-4-scout-17b-16e-instruct",
+      label: "Llama 4 Scout 17B",
+      badges: ["Modern", "Balanced"],
+      blurb: "Newer Llama 4 model. A solid all-rounder for correction and translation.",
+      good: "Fresh architecture with good quality at moderate speed.",
+      bad: "Lower token throughput (30K tokens/min); 1K requests/day.",
+    },
+    {
+      id: "allam-2-7b",
+      label: "Allam 2 7B",
+      badges: ["Arabic", "Light"],
+      blurb: "Specialized for Arabic. Best when you dictate in Arabic.",
+      good: "Strong Arabic grammar and fluency, high daily limits.",
+      bad: "Not ideal for other languages; pick a Llama model instead.",
+    },
+  ];
+
+  const groqLlmInfo = $derived(
+    GROQ_LLM_MODELS.find((m) => m.id === settings?.groq_llm_model) ?? GROQ_LLM_MODELS[0],
+  );
 
   const noAccel = $derived(
     !hw?.build_gpu || (!!runtimeStatus?.engine_ready && !!runtimeStatus?.cpu_mode),
@@ -447,6 +518,12 @@
     return (n / 1_048_576).toFixed(0) + " MB";
   }
 
+  function modelLabel(label: string): { name: string; tag: string | null } {
+    const m = label.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+    if (m) return { name: m[1].trim(), tag: m[2].trim() };
+    return { name: label.trim(), tag: null };
+  }
+
   function minimize() {
     getCurrentWindow().minimize().catch(() => {});
   }
@@ -788,6 +865,12 @@
                     <span class="track"><span class="thumb"></span></span>
                     <span>Correct speech with AI (rewrites the text as you meant it)</span>
                   </label>
+                  <label class="switch">
+                    <input type="checkbox" bind:checked={settings.llm_format_paragraphs} />
+                    <span class="track"><span class="thumb"></span></span>
+                    <span>Format into paragraphs (organize long text with line breaks instead of one line)</span>
+                  </label>
+                  <p class="hint">When off, output stays on a single line. When on, the AI groups your speech into clear paragraphs and puts dictated lists on separate lines. Applies to correction and AI translation (English translation is done by Whisper and stays on one line).</p>
                   {#if warnLlm}
                     <div class="cue warn">
                       <Icon name="warning-circle" size={16} />
@@ -802,13 +885,70 @@
                     <label for="bk">Backend</label>
                     <select id="bk" bind:value={settings.llm_backend}>
                       <option value="local">Local (llama-server)</option>
+                      <option value="groq">Groq Cloud (free API, very fast)</option>
                       <option value="open_ai_compatible">OpenAI-compatible</option>
                       <option value="anthropic">Anthropic</option>
                       <option value="ollama">Ollama</option>
                     </select>
                   </div>
+                  {#if settings.llm_backend === "groq"}
+                    <div class="field">
+                      <label for="glm">Groq model</label>
+                      <select id="glm" bind:value={settings.groq_llm_model}>
+                        {#each GROQ_LLM_MODELS as m}
+                          <option value={m.id}>{m.label}</option>
+                        {/each}
+                      </select>
+                    </div>
+                    {#if groqLlmInfo}
+                      <div class="modelcard">
+                        <div class="mc-head">
+                          <span class="mc-name">{groqLlmInfo.label}</span>
+                          {#each groqLlmInfo.badges as b}
+                            <span class="mc-badge">{b}</span>
+                          {/each}
+                        </div>
+                        <p class="mc-blurb">{groqLlmInfo.blurb}</p>
+                        <div class="mc-pro"><Icon name="check-circle" size={14} /><span>{groqLlmInfo.good}</span></div>
+                        <div class="mc-con"><Icon name="warning-circle" size={14} /><span>{groqLlmInfo.bad}</span></div>
+                      </div>
+                    {/if}
+                    <label class="switch">
+                      <input type="checkbox" bind:checked={settings.groq_reuse_transcription_key} />
+                      <span class="track"><span class="thumb"></span></span>
+                      <span>Reuse the Groq API key from transcription</span>
+                    </label>
+                    {#if !settings.groq_reuse_transcription_key}
+                      <div class="field">
+                        <label for="glk">Groq API key</label>
+                        <div class="hf-add">
+                          <input id="glk" type={showGroqLlmKey ? "text" : "password"} placeholder="gsk_..." bind:value={settings.llm_api_key} />
+                          <button class="btn" title={showGroqLlmKey ? "Hide key" : "Show key"} aria-label="Toggle key visibility" onclick={() => (showGroqLlmKey = !showGroqLlmKey)}>
+                            <Icon name={showGroqLlmKey ? "eye-slash" : "eye"} size={15} />
+                          </button>
+                          <button class="btn" onclick={openGroqKeys}>
+                            <Icon name="arrow-right" size={15} />
+                            Get key
+                          </button>
+                        </div>
+                      </div>
+                      {#if !settings.llm_api_key}
+                        <div class="cue warn">
+                          <Icon name="warning-circle" size={16} />
+                          <span>No Groq API key entered. AI Correction will not run until you paste a key here, or turn reuse back on.</span>
+                        </div>
+                      {/if}
+                    {:else if !settings.groq_api_key}
+                      <div class="cue warn">
+                        <Icon name="warning-circle" size={16} />
+                        <span>No Groq API key set. Add it in the transcription section, or turn this off to enter a separate key here.</span>
+                      </div>
+                    {/if}
+                    <p class="hint">Used for both AI Correction and Translation. Get a free key at console.groq.com/keys. Your text is sent to Groq's servers, so this mode is not offline.</p>
+                  {/if}
                 </div>
 
+                {#if settings.llm_backend !== "groq"}
                 <div class="group">
                   <span class="group-head">Active model</span>
                   <div class="field">
@@ -831,18 +971,21 @@
                     <p class="hint">No AI model installed yet. Download one from the list below to enable AI Correction.</p>
                   {/if}
                 </div>
+                {/if}
 
                 <div class="group">
                   <span class="group-head">Connection</span>
-                  <div class="field">
-                    <label for="ep">Endpoint</label>
-                    <input id="ep" bind:value={settings.llm_endpoint} />
-                  </div>
-                  <div class="field">
-                    <label for="mn">Model name</label>
-                    <input id="mn" bind:value={settings.llm_model_name} />
-                  </div>
-                  {#if settings.llm_backend !== "local"}
+                  {#if settings.llm_backend !== "groq"}
+                    <div class="field">
+                      <label for="ep">Endpoint</label>
+                      <input id="ep" bind:value={settings.llm_endpoint} />
+                    </div>
+                    <div class="field">
+                      <label for="mn">Model name</label>
+                      <input id="mn" bind:value={settings.llm_model_name} />
+                    </div>
+                  {/if}
+                  {#if settings.llm_backend !== "local" && settings.llm_backend !== "groq"}
                     <div class="field">
                       <label for="key">API key</label>
                       <input id="key" type="password" bind:value={settings.llm_api_key} />
@@ -862,6 +1005,7 @@
                   </div>
                 </div>
 
+                {#if settings.llm_backend !== "groq"}
                 <div class="group">
                   <span class="group-head">Automatic setup</span>
                   <p class="hint">Downloads the llama server and the recommended model, sets the best
@@ -891,6 +1035,7 @@
                     {#if llamaProgress?.error}<div class="err-text">{llamaProgress.message}</div>{/if}
                   {/if}
                 </div>
+                {/if}
               {/if}
 
               <div class="group">
@@ -901,13 +1046,19 @@
                   </div>
                 {/if}
                 {#each visibleModels as m, i}
+                  {@const info = modelLabel(m.info.label)}
                   <div class="model" class:divided={i > 0}>
                     <div class="model-info">
-                      <div class="model-name">{m.info.label}</div>
-                      <div class="model-meta tnum">
-                        {m.info.filename} · {fmtBytes(m.info.size_bytes)}
-                        {#if m.present}<span class="ok"><Icon name="check-circle" size={14} /> installed</span>{/if}
+                      <div class="model-head">
+                        <span class="model-name">{info.name}</span>
+                        {#if info.tag}
+                          <span class="model-tag" class:rec={/recommend/i.test(info.tag)}>{info.tag}</span>
+                        {/if}
+                        {#if m.present}
+                          <span class="model-tag inst"><Icon name="check-circle" size={12} /> installed</span>
+                        {/if}
                       </div>
+                      <div class="model-meta tnum">{m.info.filename} · {fmtBytes(m.info.size_bytes)}</div>
                       {#if isBusy(m.info.id)}
                         <div class="bar"><span style={`width:${downloads[m.info.id].pct}%`}></span></div>
                         <div class="pct tnum">{downloads[m.info.id].pct.toFixed(1)}%</div>
@@ -1032,7 +1183,13 @@
                   {#if settings.translation_target.trim().toLowerCase() === "english"}
                     <p class="hint">English is the fastest: translation is done by Whisper itself, without using the AI.</p>
                   {:else}
-                    <p class="hint">Targets other than English use the local AI to translate, which is slower on weak machines.</p>
+                    <p class="hint">Targets other than English are translated by the AI Correction backend you pick in the Models tab.</p>
+                    {#if settings.llm_backend === "local"}
+                      <div class="cue warn">
+                        <Icon name="warning-circle" size={16} />
+                        <span>Translation to {settings.translation_target} needs the AI, but AI Correction is set to <strong>Local</strong>. If no local model is running it will not translate and you only get the raw transcription. For instant cloud translation, open the <strong>Models</strong> tab and set <strong>AI Correction → Backend = Groq</strong>.</span>
+                      </div>
+                    {/if}
                   {/if}
                 {/if}
               </div>
@@ -1449,13 +1606,13 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
-    padding: 4px 0;
+    gap: 14px;
+    padding: 2px 0;
   }
 
   .model.divided {
     border-top: 1px solid var(--line);
-    padding-top: 16px;
+    padding-top: 13px;
     margin-top: 1px;
   }
 
@@ -1464,21 +1621,52 @@
     flex: 1;
   }
 
-  .model-name {
-    font-family: var(--font-display);
-    font-size: var(--t-title);
-    font-weight: 600;
-    color: var(--ink);
-  }
-
-  .model-meta {
+  .model-head {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 6px;
-    font-size: 12.5px;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .model-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1.3;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .model-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: 0 0 auto;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.4;
+    white-space: nowrap;
     color: var(--ink-faint);
-    margin-top: 4px;
+    background: var(--paper-sunk);
+    border: 1px solid var(--line);
+  }
+
+  .model-tag.rec,
+  .model-tag.inst {
+    color: var(--sage-text);
+    background: var(--sage-soft);
+    border-color: transparent;
+  }
+
+  .model-meta {
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    margin-top: 3px;
   }
 
   .ok {
@@ -1543,6 +1731,71 @@
 
   .cue :global(.ph) {
     flex: 0 0 auto;
+  }
+
+  .modelcard {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 13px 14px;
+    border-radius: var(--radius-sm);
+    background: var(--paper-sunk);
+    border: 1px solid var(--line);
+  }
+
+  .mc-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+
+  .mc-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .mc-badge {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 999px;
+    color: var(--ink-soft);
+    background: var(--paper);
+    border: 1px solid var(--line);
+  }
+
+  .mc-blurb {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+  }
+
+  .mc-pro,
+  .mc-con {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
+
+  .mc-pro {
+    color: var(--sage-text);
+  }
+
+  .mc-con {
+    color: var(--terra-text);
+  }
+
+  .mc-pro :global(.ph),
+  .mc-con :global(.ph) {
+    flex: 0 0 auto;
+    margin-top: 1px;
   }
 
   .model-actions {

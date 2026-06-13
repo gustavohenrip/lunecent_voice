@@ -40,19 +40,9 @@ impl CustomStore {
     }
 
     pub fn save(&self, path: &Path) -> AppResult<()> {
-        static SAVE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
         let json = serde_json::to_string_pretty(self)?;
-        let seq = SAVE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let tmp = path.with_extension(format!("json.tmp-{}-{seq}", std::process::id()));
-        std::fs::write(&tmp, json.as_bytes())?;
-        if let Err(err) = std::fs::rename(&tmp, path) {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(AppError::Config(err.to_string()));
-        }
-        Ok(())
+        crate::atomic_io::write_durable(path, json.as_bytes())
+            .map_err(|err| AppError::Config(err.to_string()))
     }
 
     pub fn find(&self, id: &str) -> Option<&CustomModel> {
