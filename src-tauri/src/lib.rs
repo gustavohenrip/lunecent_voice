@@ -116,6 +116,7 @@ pub fn run() {
             ) {
                 if let Some(state) = handle.try_state::<SharedState>() {
                     widget_pos::flush(&state);
+                    state.stop_sidecar();
                 }
             }
         });
@@ -156,9 +157,17 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         }
         LoadOutcome::Corrupt => {
             tracing::error!(
-                "settings.json unreadable and no usable backup; running on in-memory defaults WITHOUT overwriting disk (a timestamped .corrupt copy was saved)"
+                "settings.json contained invalid data and no usable backup; running on in-memory defaults WITHOUT overwriting disk (a timestamped .corrupt copy was saved)"
             );
             Settings::default()
+        }
+        LoadOutcome::Unreadable => {
+            tracing::error!(
+                "settings present on disk but unreadable at startup (boot-time AV/cloud lock?); using in-memory defaults and REFUSING to persist so the real config is never clobbered"
+            );
+            let mut settings = Settings::default();
+            settings.transient_unreadable = true;
+            settings
         }
     };
 
@@ -208,10 +217,22 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     inputhook_mac::start(handle.clone());
 
     tray::build(&handle)?;
-    position_widget(&handle);
 
+    let pos_handle = handle.clone();
     let ready_state = state.clone();
     tauri::async_runtime::spawn(async move {
+        for _ in 0..50 {
+            let ready = pos_handle
+                .get_webview_window("widget")
+                .and_then(|w| w.available_monitors().ok())
+                .map(|m| !m.is_empty())
+                .unwrap_or(false);
+            if ready {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+        position_widget(&pos_handle);
         tokio::time::sleep(std::time::Duration::from_millis(800)).await;
         ready_state.widget_ready.store(true, Ordering::Release);
     });

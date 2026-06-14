@@ -64,7 +64,7 @@ pub async fn restart_sidecar(state: &SharedState) {
         Ok(child) => {
             *state.sidecar.lock() = Some(child);
             let ready =
-                sidecar::wait_until_ready(state.llm.http(), port, Duration::from_secs(180)).await;
+                sidecar::wait_until_ready(state.llm.http(), port, Duration::from_secs(60)).await;
             state.sidecar_ready.store(ready, Ordering::Release);
             if ready {
                 tracing::info!("llama-server ready on port {port}");
@@ -84,13 +84,18 @@ pub fn bootstrap(app: &AppHandle, state: &SharedState) {
 
     state.reload_vad();
 
-    let engine_state = state.clone();
-    let prefer_gpu = state.settings_snapshot().prefer_gpu;
-    tauri::async_runtime::spawn_blocking(move || {
-        if let Err(err) = engine_state.load_engine(prefer_gpu) {
-            tracing::warn!("engine bootstrap: {err}");
-        }
-    });
+    let settings = state.settings_snapshot();
+    if settings.transcription_backend == crate::config::TranscriptionBackend::Groq {
+        tracing::info!("transcription backend = Groq; skipping local whisper engine load");
+    } else {
+        let engine_state = state.clone();
+        let prefer_gpu = settings.prefer_gpu;
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(err) = engine_state.load_engine(prefer_gpu) {
+                tracing::warn!("engine bootstrap: {err}");
+            }
+        });
+    }
 
     let sidecar_state = state.clone();
     tauri::async_runtime::spawn(async move {

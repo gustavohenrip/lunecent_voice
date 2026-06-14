@@ -21,6 +21,8 @@
   type Tab = "general" | "audio" | "models" | "llm" | "dictionary";
 
   let settings = $state<Settings | null>(null);
+  let loadSlow = $state(false);
+  let loadStartedAt = 0;
   let devices = $state<string[]>([]);
   let models = $state<ModelStatus[]>([]);
   let downloads = $state<Record<string, DownloadProgress>>({});
@@ -216,15 +218,20 @@
   });
 
   async function reload() {
-    for (let attempt = 0; attempt < 60; attempt++) {
+    loadSlow = false;
+    if (!settings) loadStartedAt = Date.now();
+    for (let attempt = 0; ; attempt++) {
       try {
         const loaded = await api.getSettings();
         settings = loaded;
+        loadSlow = false;
         fillerText = loaded.filler_words.join("\n");
         vocabText = loaded.vocabulary.join("\n");
         break;
       } catch (_) {
-        await new Promise((r) => setTimeout(r, 200));
+        if (Date.now() - loadStartedAt > 8000) loadSlow = true;
+        const delay = Math.min(2000, 200 + attempt * 150);
+        await new Promise((r) => setTimeout(r, delay));
       }
     }
     api.listAudioDevices().then((d) => (devices = d)).catch(() => {});
@@ -1237,7 +1244,15 @@
       </section>
     </div>
   {:else}
-    <div class="loading">Loading…</div>
+    <div class="loading">
+      {#if loadSlow}
+        <Icon name="warning-circle" size={24} />
+        <p class="load-msg">Still starting up…</p>
+        <p class="load-sub">This can take a little longer right after a Windows restart. It will load on its own.</p>
+      {:else}
+        <p class="load-msg">Loading…</p>
+      {/if}
+    </div>
   {/if}
 </div>
 
@@ -1938,11 +1953,30 @@
   }
 
   .loading {
-    display: grid;
-    place-items: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
     flex: 1;
+    padding: 24px;
+    text-align: center;
     color: var(--ink-faint);
     font-size: 16px;
+  }
+
+  .load-msg {
+    margin: 0;
+    color: var(--ink-soft);
+    font-weight: 600;
+  }
+
+  .load-sub {
+    margin: 0;
+    max-width: 340px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--ink-faint);
   }
 
   @media (max-width: 680px) {

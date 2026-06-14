@@ -83,6 +83,8 @@ pub struct Settings {
     pub restore_clipboard: bool,
     pub paste_delay_ms: u64,
     pub prefer_gpu: bool,
+    #[serde(skip)]
+    pub transient_unreadable: bool,
 }
 
 impl Default for Settings {
@@ -123,6 +125,7 @@ impl Default for Settings {
             restore_clipboard: true,
             paste_delay_ms: 120,
             prefer_gpu: true,
+            transient_unreadable: false,
         }
     }
 }
@@ -140,66 +143,104 @@ pub enum LoadOutcome {
     Loaded(Box<Settings>),
     Missing,
     Corrupt,
+    Unreadable,
 }
 
 enum ReadResult {
     Parsed(Box<Settings>),
     Missing,
-    Bad(String),
+    Invalid(String),
+    Transient,
 }
 
-fn read_and_parse(path: &Path) -> ReadResult {
-    let mut last = String::new();
-    for attempt in 0..4 {
-        match std::fs::read_to_string(path) {
-            Ok(content) => {
-                if content.trim().is_empty() {
-                    last = content;
-                } else {
-                    match serde_json::from_str::<Settings>(&content) {
-                        Ok(settings) => return ReadResult::Parsed(Box::new(settings)),
-                        Err(err) => {
-                            tracing::warn!("settings parse failed (attempt {attempt}): {err}");
-                            last = content;
-                        }
+fn path_present(path: &Path) -> bool {
+    matches!(path.try_exists(), Ok(true))
+}
+
+fn try_read_parse(path: &Path) -> ReadResult {
+    match std::fs::read_to_string(path) {
+        Ok(content) => {
+            if content.trim().is_empty() {
+                ReadResult::Transient
+            } else {
+                match serde_json::from_str::<Settings>(&content) {
+                    Ok(settings) => ReadResult::Parsed(Box::new(settings)),
+                    Err(err) => {
+                        tracing::warn!("settings parse failed: {err}");
+                        ReadResult::Invalid(content)
                     }
                 }
             }
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return ReadResult::Missing,
-            Err(err) => tracing::warn!("settings read failed (attempt {attempt}): {err}"),
         }
-        if attempt < 3 {
-            std::thread::sleep(std::time::Duration::from_millis(40));
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => ReadResult::Missing,
+        Err(err) => {
+            tracing::warn!("settings read failed: {err}");
+            ReadResult::Transient
         }
     }
-    ReadResult::Bad(last)
+}
+
+fn read_with_backoff(path: &Path, budget: std::time::Duration) -> ReadResult {
+    let deadline = std::time::Instant::now() + budget;
+    let mut delay = std::time::Duration::from_millis(50);
+    let max_delay = std::time::Duration::from_millis(1500);
+    loop {
+        match try_read_parse(path) {
+            ReadResult::Transient => {}
+            settled => return settled,
+        }
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            return ReadResult::Transient;
+        }
+        std::thread::sleep(delay.min(deadline - now));
+        delay = (delay * 2).min(max_delay);
+    }
 }
 
 impl Settings {
     pub fn load(path: &Path) -> LoadOutcome {
-        match read_and_parse(path) {
-            ReadResult::Parsed(settings) => LoadOutcome::Loaded(settings),
-            ReadResult::Missing => match read_and_parse(&bak_path(path)) {
-                ReadResult::Parsed(settings) => {
-                    tracing::warn!("settings.json missing; recovered from settings.bak");
-                    LoadOutcome::Loaded(settings)
-                }
-                _ => LoadOutcome::Missing,
-            },
-            ReadResult::Bad(content) => match read_and_parse(&bak_path(path)) {
-                ReadResult::Parsed(settings) => {
-                    tracing::warn!("settings.json unreadable; recovered from settings.bak");
-                    LoadOutcome::Loaded(settings)
-                }
-                _ => {
-                    backup_corrupt(path, &content);
-                    LoadOutcome::Corrupt
-                }
-            },
+        let present = path_present(path) || path_present(&bak_path(path));
+        let budget = if present {
+            std::time::Duration::from_secs(20)
+        } else {
+            std::time::Duration::from_millis(250)
+        };
+        Self::load_with_budget(path, budget, present)
+    }
+
+    fn load_with_budget(path: &Path, budget: std::time::Duration, present: bool) -> LoadOutcome {
+        let bak = bak_path(path);
+        let bak_budget = budget / 4;
+        let primary = read_with_backoff(path, budget - bak_budget);
+        if let ReadResult::Parsed(settings) = primary {
+            return LoadOutcome::Loaded(settings);
+        }
+        if let ReadResult::Parsed(settings) = read_with_backoff(&bak, bak_budget) {
+            tracing::warn!("settings.json unusable; recovered from settings.bak");
+            return LoadOutcome::Loaded(settings);
+        }
+        match primary {
+            ReadResult::Invalid(content) => {
+                backup_corrupt(path, &content);
+                LoadOutcome::Corrupt
+            }
+            ReadResult::Missing if !present => LoadOutcome::Missing,
+            _ => {
+                tracing::error!(
+                    "settings present on disk but could not be read at startup; running on in-memory defaults WITHOUT persisting"
+                );
+                LoadOutcome::Unreadable
+            }
         }
     }
 
     pub fn save(&self, path: &Path) -> AppResult<()> {
+        if self.transient_unreadable {
+            return Err(AppError::Config(
+                "refusing to save: settings were not readable at startup".to_string(),
+            ));
+        }
         let json = serde_json::to_string_pretty(self)?;
         crate::atomic_io::write_durable(path, json.as_bytes())
             .map_err(|err| AppError::Config(err.to_string()))?;
@@ -304,10 +345,26 @@ mod tests {
     }
 
     #[test]
-    fn empty_file_is_corrupt_not_missing() {
+    fn empty_file_is_unreadable_not_missing() {
         let p = tmp_path();
-        std::fs::write(&p, b"").unwrap();
-        assert!(matches!(Settings::load(&p), LoadOutcome::Corrupt));
+        std::fs::write(&p, b"   ").unwrap();
+        let budget = std::time::Duration::from_millis(150);
+        assert!(matches!(
+            Settings::load_with_budget(&p, budget, true),
+            LoadOutcome::Unreadable
+        ));
+        let still = std::fs::read_to_string(&p).unwrap();
+        assert_eq!(still, "   ");
+        cleanup(&p);
+    }
+
+    #[test]
+    fn transient_unreadable_settings_refuse_to_save() {
+        let p = tmp_path();
+        let mut s = Settings::default();
+        s.transient_unreadable = true;
+        assert!(s.save(&p).is_err());
+        assert!(!path_present(&p));
         cleanup(&p);
     }
 }

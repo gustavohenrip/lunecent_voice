@@ -43,6 +43,8 @@ pub fn open(path: &Path) -> AppResult<Connection> {
         std::fs::create_dir_all(parent)?;
     }
     let conn = Connection::open(path).map_err(|e| AppError::Db(e.to_string()))?;
+    conn.busy_timeout(std::time::Duration::from_secs(5))
+        .map_err(|e| AppError::Db(e.to_string()))?;
     conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
         .map_err(|e| AppError::Db(e.to_string()))?;
     migrate(&conn)?;

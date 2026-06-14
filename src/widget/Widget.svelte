@@ -181,7 +181,16 @@
     let unlisten: UnlistenFn[] = [];
     const clearHover = () => (hovered = false);
     window.addEventListener("blur", clearHover);
-    api.getStatus().then((s) => (status = s)).catch(() => {});
+    (async () => {
+      for (let attempt = 0; attempt < 40; attempt++) {
+        try {
+          status = await api.getStatus();
+          return;
+        } catch (_) {
+          await new Promise((r) => setTimeout(r, Math.min(1500, 200 + attempt * 100)));
+        }
+      }
+    })();
     updateDockSide();
     (async () => {
       try {

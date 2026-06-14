@@ -43,7 +43,12 @@ pub async fn save_settings(
         shared.reload_vad();
     }
 
-    if old.whisper_model != settings.whisper_model || old.prefer_gpu != settings.prefer_gpu {
+    let switched_to_local = old.transcription_backend != settings.transcription_backend
+        && settings.transcription_backend == crate::config::TranscriptionBackend::Local;
+    if old.whisper_model != settings.whisper_model
+        || old.prefer_gpu != settings.prefer_gpu
+        || switched_to_local
+    {
         let engine_state = shared.clone();
         let prefer = settings.prefer_gpu;
         let outcome = tokio::task::spawn_blocking(move || engine_state.load_engine(prefer)).await;
